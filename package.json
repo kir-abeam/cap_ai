@@ -1,0 +1,25 @@
+{
+  "name": "ai_cap",
+  "version": "1.0.0",
+  "dependencies": {
+    "@sap-ai-sdk/langchain": "^2.10.0",
+    "@cap-js/hana": "^2",
+    "@sap/cds": "^9",
+    "@sap/xssec": "^4"
+  },
+  "devDependencies": {
+    "@cap-js/sqlite": "^2.4"
+  },
+  "scripts": {
+    "start": "cds-serve",
+    "hybrid": "cds watch --profile hybrid"
+  },
+  "private": true,
+  "cds": {
+    "requires": {
+      "[production]": {
+        "auth": "xsuaa"
+      }
+    }
+  }
+}

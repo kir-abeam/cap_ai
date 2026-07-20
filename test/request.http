@@ -1,0 +1,13 @@
+@baseUrl = http://localhost:4004/document-processing-service
+
+### Get invoice pages — uses test/Invoice.pdf as fallback
+POST {{baseUrl}}/getInvoicePages
+Content-Type: application/json
+
+{}
+
+### Extract invoice data — uses test/Invoice_1.pdf as fallback
+POST {{baseUrl}}/extractInvoice
+Content-Type: application/json
+
+{}
