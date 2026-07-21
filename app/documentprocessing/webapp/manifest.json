@@ -85,28 +85,33 @@
       "routes": [
         {
           "pattern": ":?query:",
-          "name": "InvoicesList",
-          "target": "InvoicesList"
+          "name": "EmailsList",
+          "target": "EmailsList"
         },
         {
-          "pattern": "Invoices({key}):?query:",
-          "name": "InvoicesObjectPage",
-          "target": "InvoicesObjectPage"
+          "pattern": "Emails({key}):?query:",
+          "name": "EmailsObjectPage",
+          "target": "EmailsObjectPage"
+        },
+        {
+          "pattern": "Emails({key})/invoices({invoicesKey}):?query:",
+          "name": "InvoiceObjectPage",
+          "target": "InvoiceObjectPage"
         }
       ],
       "targets": {
-        "InvoicesList": {
+        "EmailsList": {
           "type": "Component",
-          "id": "InvoicesList",
+          "id": "EmailsList",
           "name": "sap.fe.templates.ListReport",
           "options": {
             "settings": {
-              "contextPath": "/Invoices",
+              "contextPath": "/Emails",
               "variantManagement": "Page",
               "navigation": {
-                "Invoices": {
+                "Emails": {
                   "detail": {
-                    "route": "InvoicesObjectPage"
+                    "route": "EmailsObjectPage"
                   }
                 }
               },
@@ -120,16 +125,23 @@
             }
           }
         },
-        "InvoicesObjectPage": {
+        "EmailsObjectPage": {
           "type": "Component",
-          "id": "InvoicesObjectPage",
+          "id": "EmailsObjectPage",
           "name": "sap.fe.templates.ObjectPage",
           "options": {
             "settings": {
               "editableHeaderContent": false,
-              "contextPath": "/Invoices",
+              "contextPath": "/Emails",
+              "navigation": {
+                "invoices": {
+                  "detail": {
+                    "route": "InvoiceObjectPage"
+                  }
+                }
+              },
               "controlConfiguration": {
-                "lineItems/@com.sap.vocabularies.UI.v1.LineItem": {
+                "invoices/@com.sap.vocabularies.UI.v1.LineItem": {
                   "tableSettings": {
                     "type": "ResponsiveTable"
                   }
@@ -142,12 +154,32 @@
                       "template": "documentprocessing.ext.EmailBody",
                       "position": {
                         "placement": "Before",
-                        "anchor": "HeaderFacet"
+                        "anchor": "InvoicesFacet"
                       },
                       "title": "Email"
                     }
                   }
-                },
+                }
+              }
+            }
+          }
+        },
+        "InvoiceObjectPage": {
+          "type": "Component",
+          "id": "InvoiceObjectPage",
+          "name": "sap.fe.templates.ObjectPage",
+          "options": {
+            "settings": {
+              "editableHeaderContent": false,
+              "contextPath": "/Emails/invoices",
+              "controlConfiguration": {
+                "lineItems/@com.sap.vocabularies.UI.v1.LineItem": {
+                  "tableSettings": {
+                    "type": "ResponsiveTable"
+                  }
+                }
+              },
+              "content": {
                 "header": {
                   "actions": {
                     "ShowAttachments": {

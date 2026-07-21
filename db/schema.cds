@@ -3,12 +3,39 @@ namespace abeam.invoicereview;
 using { cuid, managed, sap.common.CodeList } from '@sap/cds/common';
 
 /**
- * Combined entity: email metadata + invoice header + compositions.
+ * Email grouping parent. One incoming email can carry many invoices (e.g. a
+ * single email with several attached invoice PDFs), so the email metadata now
+ * lives on its own entity and the invoices hang off it via an association.
+ *
+ * Emails is a read-only grouping in the UI: the List Report lists emails, and
+ * the Email Object Page shows the body + a table of its invoices. Each invoice
+ * is edited/verified independently on its own (draft-enabled) Object Page.
  *
  * This models the contract that a single combined S/4HANA OData service will
- * eventually implement. For now it is persisted locally (SQLite/HANA) and
- * seeded with mock data. When the S/4 service is ready, this entity becomes a
- * projection on the imported remote service (see the project plan).
+ * eventually implement (email header + invoice children). For now it is
+ * persisted locally (SQLite/HANA) and seeded with mock data.
+ */
+entity Emails : cuid, managed {
+  // --- email metadata ---
+  emailSubject      : String(255);
+  emailSentDate     : DateTime;
+  emailSender       : String(241);         // RFC 5321 max local+domain
+  emailBodyHtml     : LargeString;         // raw HTML, rendered in a custom section
+
+  // --- invoices carried by this email ---
+  // Composition (contained) so the email is the draft root and its invoice
+  // sub-object-pages are editable within the draft (FE master-detail pattern).
+  invoices          : Composition of many Invoices on invoices.email = $self;
+
+  // --- rollup of the child invoices' verification statuses (see service .js) ---
+  // Computed in an after-READ handler (a to-many rollup can't be a plain calc).
+  virtual statusCriticality : Integer;     // most severe among child invoices
+  virtual statusSummary     : String(40);  // e.g. "3 · 1 pending"
+}
+
+/**
+ * Invoice header + line items + attachments. Child of Emails, but its own
+ * draft root (independently editable / verifiable).
  *
  * Field mapping vs. the existing DocumentProcessingService AI types:
  *   documentNumber      <- invoiceNumber
@@ -18,11 +45,8 @@ using { cuid, managed, sap.common.CodeList } from '@sap/cds/common';
  *   vendorAccountNumber <- payeeAccountNumber
  */
 entity Invoices : cuid, managed {
-  // --- email metadata ---
-  emailSubject        : String(255);
-  emailSentDate       : DateTime;
-  emailSender         : String(241);       // RFC 5321 max local+domain
-  emailBodyHtml       : LargeString;       // raw HTML, rendered in a custom section
+  // --- parent email (owning side -> generates email_ID FK) ---
+  email               : Association to Emails;
 
   // --- invoice header (editable) ---
   documentNumber      : String(60);

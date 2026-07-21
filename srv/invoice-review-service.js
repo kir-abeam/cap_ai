@@ -5,12 +5,55 @@ const path = require('path');
 module.exports = class InvoiceReviewService extends cds.ApplicationService {
 
   async init() {
-    const { Invoices } = this.entities;
+    const { Invoices, Emails } = this.entities;
 
     this.on('verify', Invoices, req => this._setStatus(req, 'V'));
     this.on('rejectInvoice', Invoices, req => this._setStatus(req, 'R'));
 
+    // Hydrate the email-level rollup status from its child invoices.
+    this.after('READ', Emails, rows => this._rollupEmails(rows));
+
     return super.init();
+  }
+
+  /**
+   * Compute the rollup status virtual fields for each returned email. A to-many
+   * aggregation can't be a plain CDS calculated element, so we do it here.
+   * Criticality per status: Rejected 1 (red), Pending 2 (yellow), Verified 3
+   * (green); the email shows the *most severe* (minimum) among its invoices.
+   */
+  async _rollupEmails(rows) {
+    const emails = Array.isArray(rows) ? rows : [rows];
+    const ids = emails.map(e => e && e.ID).filter(Boolean);
+    if (!ids.length) return;
+
+    const CRIT = { R: 1, P: 2, V: 3 };
+    const invoices = await SELECT
+      .from(this.entities.Invoices)
+      .columns('email_ID', 'verificationStatus_code')
+      .where({ email_ID: { in: ids } });
+
+    const byEmail = {};
+    for (const inv of invoices) {
+      const g = (byEmail[inv.email_ID] ||= { total: 0, pending: 0, crit: 3 });
+      g.total += 1;
+      if (inv.verificationStatus_code === 'P') g.pending += 1;
+      g.crit = Math.min(g.crit, CRIT[inv.verificationStatus_code] ?? 3);
+    }
+
+    for (const e of emails) {
+      if (!e) continue;
+      const g = byEmail[e.ID];
+      if (!g || g.total === 0) {
+        e.statusCriticality = 0;               // neutral: no invoices
+        e.statusSummary = 'No invoices';
+      } else {
+        e.statusCriticality = g.crit;
+        e.statusSummary = g.pending
+          ? `${g.total} · ${g.pending} pending`
+          : `${g.total} · done`;
+      }
+    }
   }
 
   /** Bound action handler: set the verification status of the active record. */

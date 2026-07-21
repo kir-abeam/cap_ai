@@ -2,7 +2,13 @@ using { abeam.invoicereview as ir } from '../db/schema';
 
 service InvoiceReviewService @(path: '/invoice-review') {
 
+  // Email grouping parent AND the draft root (its invoices are a contained
+  // composition, so each invoice sub-object-page is editable within the email
+  // draft). Emails aren't created/deleted from the UI (see annotations); the
+  // after-READ handler hydrates the rollup status virtual fields.
   @odata.draft.enabled
+  entity Emails as projection on ir.Emails;
+
   entity Invoices as projection on ir.Invoices actions {
 
     @(

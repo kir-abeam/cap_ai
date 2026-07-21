@@ -1,7 +1,8 @@
 {
   "permissions": {
     "additionalDirectories": [
-      "/tmp"
+      "/tmp",
+      "/home/user/.claude/plans"
     ]
   }
 }
