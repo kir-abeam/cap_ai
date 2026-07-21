@@ -4,12 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-`ai_cap` is a SAP Cloud Application Programming (CAP) Node.js service that extracts structured invoice data from PDF documents using LLMs hosted on SAP AI Core. It exposes a single unauthenticated-in-dev service, `DocumentProcessingService`, at path `/document-processing-service` with two AI-backed actions:
+`ai_cap` is a SAP Cloud Application Programming (CAP) Node.js project with two independent parts:
 
-- `getInvoicePages(fileContent)` — identifies page ranges in a (possibly multi-invoice) PDF, returns `many PageRange`.
-- `extractInvoice(invoiceContent, emailContent, ocrResults)` — extracts a structured `InvoiceHeader` (with `lineItems`) from a PDF plus email text plus existing OCR JSON.
+1. **`DocumentProcessingService`** (`/document-processing-service`) — AI extraction of invoice data from PDFs via LLMs on SAP AI Core. Action-only, no persistence:
+   - `getInvoicePages(fileContent)` — identifies page ranges in a (possibly multi-invoice) PDF, returns `many PageRange`.
+   - `extractInvoice(invoiceContent, emailContent, ocrResults)` — extracts a structured `InvoiceHeader` (with `lineItems`) from a PDF plus email text plus existing OCR JSON.
 
-All inputs are `LargeString` (base64 PDF / plain text / JSON string). Return types are CDS `type`s defined in `srv/DocumentProcessingService.cds`.
+   All inputs are `LargeString` (base64 PDF / plain text / JSON string). Return types are CDS `type`s in `srv/DocumentProcessingService.cds`.
+
+2. **`InvoiceReviewService`** (`/invoice-review`) — a persisted, Fiori-facing service backing a **Fiori Elements List Report + Object Page** app (`app/invoicereview/`) for reviewing and verifying extracted invoices. See "Invoice Review app" below.
 
 ## Commands
 
@@ -17,7 +20,21 @@ All inputs are `LargeString` (base64 PDF / plain text / JSON string). Return typ
 - `npm run hybrid` — runs `cds watch --profile hybrid`; this is the primary dev loop. The `hybrid` profile binds to a real SAP AI Core instance via `.cdsrc-private.json` (gitignored), so it needs Cloud Foundry credentials for the `default_aicore` service in the `ABeam Consulting Ltd.` org / `dev` space.
 - Manual testing: use `test/request.http` (REST Client). Both actions accept an empty body `{}` and fall back to bundled sample data (see below), so you can exercise the AI path without supplying a PDF.
 
-There is no test runner, linter, or build step configured. `@cap-js/sqlite` is a dev dependency for CAP's default in-memory persistence, but this project defines no entities/tables — the service is action-only.
+- Fiori app (Invoice Review): run `cds watch` (or `cds serve --in-memory`), then open `http://localhost:4004/invoicereview/webapp/index.html`. SQLite auto-deploys `db/schema.cds` and loads the CSV seed under `db/data/`.
+
+There is no test runner, linter, or build step configured. `@cap-js/sqlite` (dev) provides the in-memory persistence for `InvoiceReviewService`; `DocumentProcessingService` remains action-only.
+
+## Invoice Review app
+
+An end-to-end review/verification UI built as **Fiori Elements** (List Report + Object Page). Currently runs on **local mock data** but is modeled as the contract a future **single combined S/4HANA OData service** will implement (attachments map to an S/4 custom table XSTRING column). See `.claude/plans/i-want-to-create-fuzzy-turing.md` for the full design and the mock→S/4 migration path.
+
+- **Model** (`db/schema.cds`, namespace `abeam.invoicereview`): one `Invoices` entity carrying email metadata + invoice header + a `verificationStatus` (code list `VerificationStatuses`: P/V/R with a `criticality` column for FE coloring), plus compositions `lineItems` and `attachments` (media entity, `LargeBinary content @Core.MediaType`).
+  - Field-name mapping vs. `DocumentProcessingService` types: `documentNumber←invoiceNumber`, `documentDate←invoiceDate`, `vendor*←payee*`.
+  - `isEditable : Boolean = verificationStatus.code = 'P'` is a **calculated element** and the single source of truth for editability.
+- **Service** (`srv/invoice-review-service.cds` + `.js`): `@odata.draft.enabled` projection with bound actions `verify()` / `rejectInvoice()`. Note `reject` was renamed to `rejectInvoice` because a plain `reject` action **collides with a base-class method** on `cds.ApplicationService` (label stays "Reject"). Handlers set the status; a `cds.once('served')` hook hydrates mock attachment binaries from the sample PDFs in `srv/`.
+- **Annotations + the verify lock** (`srv/invoice-review-annotations.cds`): the whole Object Page becomes read-only after Verify/Reject via `Capabilities.UpdateRestrictions: { Updatable: isEditable }`. **Gotcha:** the flattened form `UpdateRestrictions.Updatable : isEditable` folds to a static `false` — you must use the record form `{ Updatable: isEditable }` to emit a path binding.
+- **Custom FE extensions** (`app/invoicereview/webapp/ext/`): the email body is an HTML custom section (`sap.ui.core.HTML`, sanitized with `sap/base/security/sanitizeHTML`); the Attachments button opens a dialog listing attachments. Because the entity is draft-enabled, media/entity keys **must include `IsActiveEntity`** — e.g. `Attachments(ID=<guid>,IsActiveEntity=true)/content`.
+- **App scaffolding**: hand-authored (no `@sap/generator-fiori` installed) and served statically by `cds watch`; UI5 bootstraps from the CDN in `index.html`.
 
 ## Architecture notes
 

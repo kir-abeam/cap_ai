@@ -1,0 +1,135 @@
+{
+  "_version": "1.60.0",
+  "sap.app": {
+    "id": "abeam.invoicereview",
+    "type": "application",
+    "title": "Invoice Review",
+    "description": "Review and verify invoice data extracted from emails",
+    "applicationVersion": {
+      "version": "1.0.0"
+    },
+    "dataSources": {
+      "mainService": {
+        "uri": "/invoice-review/",
+        "type": "OData",
+        "settings": {
+          "odataVersion": "4.0"
+        }
+      }
+    }
+  },
+  "sap.ui": {
+    "technology": "UI5",
+    "deviceTypes": {
+      "desktop": true,
+      "tablet": true,
+      "phone": true
+    }
+  },
+  "sap.ui5": {
+    "dependencies": {
+      "minUI5Version": "1.120.0",
+      "libs": {
+        "sap.m": {},
+        "sap.fe.templates": {}
+      }
+    },
+    "models": {
+      "i18n": {
+        "type": "sap.ui.model.resource.ResourceModel",
+        "settings": {
+          "bundleName": "abeam.invoicereview.i18n.i18n"
+        }
+      },
+      "": {
+        "dataSource": "mainService",
+        "settings": {
+          "operationMode": "Server",
+          "autoExpandSelect": true,
+          "earlyRequests": true
+        }
+      }
+    },
+    "rootView": {
+      "viewName": "sap.fe.core.rootView.NavContainer",
+      "type": "XML",
+      "async": true,
+      "id": "appRootView"
+    },
+    "routing": {
+      "config": {},
+      "routes": [
+        {
+          "name": "InvoicesList",
+          "pattern": ":?query:",
+          "target": "InvoicesList"
+        },
+        {
+          "name": "InvoicesObjectPage",
+          "pattern": "Invoices({key}):?query:",
+          "target": "InvoicesObjectPage"
+        }
+      ],
+      "targets": {
+        "InvoicesList": {
+          "type": "Component",
+          "id": "InvoicesList",
+          "name": "sap.fe.templates.ListReport",
+          "options": {
+            "settings": {
+              "contextPath": "/Invoices",
+              "variantManagement": "Page",
+              "initialLoad": true,
+              "navigation": {
+                "Invoices": {
+                  "detail": {
+                    "route": "InvoicesObjectPage"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "InvoicesObjectPage": {
+          "type": "Component",
+          "id": "InvoicesObjectPage",
+          "name": "sap.fe.templates.ObjectPage",
+          "options": {
+            "settings": {
+              "contextPath": "/Invoices",
+              "content": {
+                "body": {
+                  "sections": {
+                    "EmailBodySection": {
+                      "template": "abeam.invoicereview.ext.EmailBody",
+                      "title": "Email Body",
+                      "position": {
+                        "placement": "Before",
+                        "anchor": "HeaderFacet"
+                      }
+                    }
+                  }
+                },
+                "header": {
+                  "actions": {
+                    "ShowAttachments": {
+                      "press": "abeam.invoicereview.ext.AttachmentsHandler.onShowAttachments",
+                      "text": "Attachments",
+                      "position": {
+                        "placement": "After"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "contentDensities": {
+      "compact": true,
+      "cozy": true
+    }
+  }
+}

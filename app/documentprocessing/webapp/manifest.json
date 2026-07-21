@@ -1,0 +1,181 @@
+{
+  "_version": "1.86.0",
+  "sap.app": {
+    "id": "documentprocessing",
+    "type": "application",
+    "i18n": "i18n/i18n.properties",
+    "applicationVersion": {
+      "version": "0.0.1"
+    },
+    "title": "{{appTitle}}",
+    "description": "{{appDescription}}",
+    "resources": "resources.json",
+    "sourceTemplate": {
+      "id": "@sap/generator-fiori:lrop",
+      "version": "1.28.0",
+      "toolsId": "82cd7df2-bcb8-42f4-88da-f6ff22186849"
+    },
+    "dataSources": {
+      "mainService": {
+        "uri": "/invoice-review/",
+        "type": "OData",
+        "settings": {
+          "annotations": [],
+          "odataVersion": "4.0"
+        }
+      }
+    }
+  },
+  "sap.ui": {
+    "technology": "UI5",
+    "icons": {
+      "icon": "",
+      "favIcon": "",
+      "phone": "",
+      "phone@2": "",
+      "tablet": "",
+      "tablet@2": ""
+    },
+    "deviceTypes": {
+      "desktop": true,
+      "tablet": true,
+      "phone": true
+    }
+  },
+  "sap.ui5": {
+    "flexEnabled": false,
+    "dependencies": {
+      "minUI5Version": "1.150.0",
+      "libs": {
+        "sap.m": {},
+        "sap.ui.core": {},
+        "sap.fe.templates": {}
+      }
+    },
+    "contentDensities": {
+      "compact": true,
+      "cozy": true
+    },
+    "models": {
+      "i18n": {
+        "type": "sap.ui.model.resource.ResourceModel",
+        "settings": {
+          "bundleName": "documentprocessing.i18n.i18n"
+        }
+      },
+      "": {
+        "dataSource": "mainService",
+        "preload": true,
+        "settings": {
+          "operationMode": "Server",
+          "autoExpandSelect": true,
+          "earlyRequests": true
+        }
+      },
+      "@i18n": {
+        "type": "sap.ui.model.resource.ResourceModel",
+        "uri": "i18n/i18n.properties"
+      }
+    },
+    "resources": {
+      "css": []
+    },
+    "routing": {
+      "config": {},
+      "routes": [
+        {
+          "pattern": ":?query:",
+          "name": "InvoicesList",
+          "target": "InvoicesList"
+        },
+        {
+          "pattern": "Invoices({key}):?query:",
+          "name": "InvoicesObjectPage",
+          "target": "InvoicesObjectPage"
+        }
+      ],
+      "targets": {
+        "InvoicesList": {
+          "type": "Component",
+          "id": "InvoicesList",
+          "name": "sap.fe.templates.ListReport",
+          "options": {
+            "settings": {
+              "contextPath": "/Invoices",
+              "variantManagement": "Page",
+              "navigation": {
+                "Invoices": {
+                  "detail": {
+                    "route": "InvoicesObjectPage"
+                  }
+                }
+              },
+              "controlConfiguration": {
+                "@com.sap.vocabularies.UI.v1.LineItem": {
+                  "tableSettings": {
+                    "type": "ResponsiveTable"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "InvoicesObjectPage": {
+          "type": "Component",
+          "id": "InvoicesObjectPage",
+          "name": "sap.fe.templates.ObjectPage",
+          "options": {
+            "settings": {
+              "editableHeaderContent": false,
+              "contextPath": "/Invoices",
+              "controlConfiguration": {
+                "lineItems/@com.sap.vocabularies.UI.v1.LineItem": {
+                  "tableSettings": {
+                    "type": "ResponsiveTable"
+                  }
+                }
+              },
+              "content": {
+                "body": {
+                  "sections": {
+                    "EmailBody": {
+                      "template": "documentprocessing.ext.EmailBody",
+                      "position": {
+                        "placement": "Before",
+                        "anchor": "HeaderFacet"
+                      },
+                      "title": "Email"
+                    }
+                  }
+                },
+                "header": {
+                  "actions": {
+                    "ShowAttachments": {
+                      "press": "documentprocessing.ext.AttachmentsHandler.onShowAttachments",
+                      "visible": true,
+                      "enabled": true,
+                      "text": "Attachments",
+                      "position": {
+                        "placement": "After",
+                        "anchor": "DataFieldForAction::InvoiceReviewService.rejectInvoice"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "sap.fiori": {
+    "registrationIds": [],
+    "archeType": "transactional"
+  },
+  "sap.fe": {
+    "app": {
+      "enableLazyLoading": true
+    }
+  }
+}
