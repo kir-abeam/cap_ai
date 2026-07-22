@@ -7,7 +7,12 @@ sap.ui.define([
 
   var SERVICE = "/invoice-review";
 
-  return {
+  // Named singleton so it can be passed as the fragment's `controller`: the
+  // `.onOpenAttachment` / `.onCloseAttachments` press handlers in
+  // AttachmentsDialog.fragment.xml are resolved against that controller. (Note
+  // `this` inside onShowAttachments is FE's ExtensionAPI, which lacks these
+  // methods — passing `this` there is why the item press never fired.)
+  var AttachmentsHandler = {
     /**
      * Custom Object Page header action: load the attachments of the current
      * Invoice and show them in a dialog with download/open links.
@@ -25,9 +30,8 @@ sap.ui.define([
 
       var oModel = oContext.getModel();
 
-      // Navigate from the invoice context so attachments are read in the same
-      // draft/active state as the parent. The entity is draft-enabled, so the
-      // media stream key must include IsActiveEntity (see URL below).
+      // Navigate from the invoice context to read its attachments. Non-draft:
+      // there is no IsActiveEntity, so the media stream key is just the ID.
       var oListBinding = oModel.bindList("attachments", oContext);
 
       var aContexts = await oListBinding.requestContexts(0, 100);
@@ -41,16 +45,14 @@ sap.ui.define([
         };
       });
 
-      if (!this._pAttachmentsDialog) {
-        this._pAttachmentsDialog = Fragment.load({
+      if (!AttachmentsHandler._pDialog) {
+        AttachmentsHandler._pDialog = Fragment.load({
           name: "documentprocessing.ext.AttachmentsDialog",
-          controller: this
-        }).then(function (oDialog) {
-          return oDialog;
+          controller: AttachmentsHandler
         });
       }
 
-      var oDialog = await this._pAttachmentsDialog;
+      var oDialog = await AttachmentsHandler._pDialog;
       oDialog.setModel(new JSONModel({ items: aItems }), "att");
       oDialog.open();
     },
@@ -65,4 +67,6 @@ sap.ui.define([
       oEvent.getSource().getParent().close();
     }
   };
+
+  return AttachmentsHandler;
 });

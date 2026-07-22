@@ -85,7 +85,10 @@ entity Attachments : cuid {
   invoice   : Association to Invoices;
   fileName  : String(255);
   mediaType : String(120)  @Core.IsMediaType;
-  content   : LargeBinary  @Core.MediaType: mediaType  @Core.ContentDisposition.Filename: fileName;
+  // ContentDisposition.Type 'inline' so the browser *displays* the file (PDF /
+  // image) in the tab instead of downloading it. Without it CAP defaults to
+  // 'attachment' whenever a Filename is set (see @sap/cds streaming util).
+  content   : LargeBinary  @Core.MediaType: mediaType  @Core.ContentDisposition.Filename: fileName  @Core.ContentDisposition.Type: 'inline';
   size      : Integer;
 }
 
