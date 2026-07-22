@@ -7,6 +7,7 @@
       content="{
         path: 'emailBodyHtml',
         formatter: 'EmailBodyFormatter.sanitize'
-      }" />
+      }"
+      afterRendering="EmailBodyFormatter.onAfterRendering" />
   </VBox>
 </core:FragmentDefinition>
