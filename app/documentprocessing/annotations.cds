@@ -45,10 +45,13 @@ annotate InvoiceReviewService.Emails with @(
   ]
 );
 
-// Emails are the draft root (so invoices are editable within the draft), but
-// they arrive from ingestion — no creating/deleting emails from the UI.
+// Emails arrive from ingestion, so the FE Create button is hidden — but the
+// OData create path stays OPEN for the ingestion API. UI.CreateHidden is a
+// UI-only hint (hides the button); Capabilities.InsertRestrictions.Insertable
+// would instead be enforced at runtime and 405 the POST. Delete stays fully
+// blocked (UI + runtime) since nothing should remove ingested emails.
 annotate InvoiceReviewService.Emails with @(
-  Capabilities.InsertRestrictions.Insertable: false,
+  UI.CreateHidden                           : true,
   Capabilities.DeleteRestrictions.Deletable : false
 );
 

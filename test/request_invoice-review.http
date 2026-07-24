@@ -1,0 +1,47 @@
+@baseUrl = http://localhost:4004/invoice-review
+
+### Create Data (deep insert: email -> invoices -> lineItems)
+# NOTE: property names are case-sensitive and must match the CDS model:
+#   - key element is `ID` (uppercase, from `cuid`), not `id`
+#   - `verificationStatus` is an association -> set the FK `verificationStatus_code`
+#   - there is no `summary` field on Emails
+# The service is NON-DRAFT, so this POST creates the record directly (no
+# IsActiveEntity, no draftActivate). Under --profile s4 the create is bridged
+# to S/4's draft flow by the s4-proxy write handlers.
+POST {{baseUrl}}/Emails
+Content-Type: application/json
+
+{
+    "ID": "e1111111-1111-1111-1111-111111111111",
+    "emailSubject": "Test",
+    "emailSentDate": "2026-07-23T13:09:10+08:00",
+    "emailSender": "aismail@abeam.com",
+    "emailBodyHtml": "test",
+    "summary": "test",
+    "invoices": [
+        {
+            "ID": "11111111-1111-1111-1111-111111111111",
+            "documentNumber": "25016078",
+            "documentDate": "2025-12-10",
+            "totalAmount": 292680.00,
+            "currency": "MYR",
+            "taxAmount": 21680.00,
+            "vendorCode": "100234",
+            "vendorName": "Zaid Ibrahim & Co",
+            "vendorAccountNumber": "21433400001867",
+            "verificationStatus_code": "P",
+            "lineItems": [
+                {
+                    "ID": "aaaa1111-0000-0000-0000-000000000001",
+                    "amount": 292680.00,
+                    "glAccount": "6100100",
+                    "costCenter": "108-02600",
+                    "internalOrder": "PTR121-115"
+                }
+            ]
+        }
+    ]
+}
+
+### Read back the email with its invoices + line items
+GET {{baseUrl}}/Emails(e1111111-1111-1111-1111-111111111111)?$expand=invoices($expand=lineItems)

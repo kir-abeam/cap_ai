@@ -1,16 +1,24 @@
 const cds = require('@sap/cds');
 const fs   = require('fs');
 const path = require('path');
+const s4Proxy = require('./lib/s4-proxy');
 
 module.exports = class InvoiceReviewService extends cds.ApplicationService {
 
   async init() {
     const { Invoices, Emails } = this.entities;
 
-    this.on('verify', Invoices, req => this._setStatus(req, 'V'));
-    this.on('rejectInvoice', Invoices, req => this._setStatus(req, 'R'));
+    // When the S/4 remote service is configured (the `s4` profile), delegate
+    // all CRUD + verify/reject to it; otherwise keep the local SQLite mock.
+    const delegated = await s4Proxy.register(this);
 
-    // Hydrate the email-level rollup status from its child invoices.
+    if (!delegated) {
+      this.on('verify', Invoices, req => this._setStatus(req, 'V'));
+      this.on('rejectInvoice', Invoices, req => this._setStatus(req, 'R'));
+    }
+
+    // Hydrate the email-level rollup status from its child invoices. Works for
+    // both backends: it reads Invoices through this service (mock or delegated).
     this.after('READ', Emails, rows => this._rollupEmails(rows));
 
     return super.init();
@@ -28,10 +36,14 @@ module.exports = class InvoiceReviewService extends cds.ApplicationService {
     if (!ids.length) return;
 
     const CRIT = { R: 1, P: 2, V: 3 };
-    const invoices = await SELECT
-      .from(this.entities.Invoices)
-      .columns('email_ID', 'verificationStatus_code')
-      .where({ email_ID: { in: ids } });
+    // Route through the service (this.run) so it hits whichever backend is
+    // active — the local mock, or the S/4 delegated READ handler.
+    const invoices = await this.run(
+      SELECT
+        .from(this.entities.Invoices)
+        .columns('email_ID', 'verificationStatus_code')
+        .where({ email_ID: { in: ids } })
+    );
 
     const byEmail = {};
     for (const inv of invoices) {
@@ -71,6 +83,9 @@ module.exports = class InvoiceReviewService extends cds.ApplicationService {
 // the files into any Attachment whose content is still empty. Idempotent.
 // ------------------------------------------------------------------
 cds.once('served', async () => {
+  // Mock-only: skip when delegating to S/4 (attachments live in S/4 there).
+  const s4cfg = cds.env.requires?.ZUI_INVOICE_REVIEW_O4;
+  if (s4cfg?.credentials || s4cfg?.binding) return;
   try {
     const db = await cds.connect.to('db');
     const { Attachments } = db.entities('abeam.invoicereview');
