@@ -21,6 +21,7 @@ entity Emails : cuid, managed {
   emailSentDate     : DateTime;
   emailSender       : String(241);         // RFC 5321 max local+domain
   emailBodyHtml     : LargeString;         // raw HTML, rendered in a custom section
+  summary           : LargeString;         // raw HTML, rendered in a custom section
 
   // --- invoices carried by this email ---
   // Composition (contained) so the email is the draft root and its invoice

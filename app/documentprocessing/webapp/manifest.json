@@ -157,6 +157,14 @@
                         "anchor": "InvoicesFacet"
                       },
                       "title": "Email"
+                    },
+                    "AISummary": {
+                      "template": "documentprocessing.ext.AISummary",
+                      "position": {
+                        "placement": "Before",
+                        "anchor": "EmailBody"
+                      },
+                      "title": "AI Summary"
                     }
                   }
                 }
