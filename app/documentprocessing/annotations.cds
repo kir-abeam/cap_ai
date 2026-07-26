@@ -65,6 +65,12 @@ annotate InvoiceReviewService.Invoice with @(
     { $Type: 'UI.ReferenceFacet', ID: 'ItemsFacet',  Label: 'Line Items',     Target: '_Item/@UI.LineItem' }
   ],
 
+  // Lock the whole invoice once it is Verified/Rejected: FE renders every field
+  // (header + line items) read-only when IsEditable is false. Record form is
+  // required — the flattened `UpdateRestrictions.Updatable : IsEditable` folds to
+  // a static false.
+  Capabilities.UpdateRestrictions : { Updatable : IsEditable },
+
   UI.FieldGroup #Header : {
     Data : [
       { $Type: 'UI.DataField', Value: DocumentNumber,      Label: 'Document Number' },
@@ -79,6 +85,16 @@ annotate InvoiceReviewService.Invoice with @(
     ]
   }
 );
+
+// VerificationStatus is set only via the Verify/Reject actions, never typed
+// directly (read-only even on a Pending, otherwise-editable invoice). Points at
+// the constant control field VerificationStatusFC (= 1 = ReadOnly). A static
+// #ReadOnly is dropped by the CAP compiler, so the path form is used.
+annotate InvoiceReviewService.Invoice with {
+  VerificationStatus @Common.FieldControl  : VerificationStatusFC
+                     @Common.Text          : VerificationStatusText
+                     @Common.TextArrangement: #TextOnly;
+};
 
 // ==================================================================
 // InvoiceItem: line-items table columns

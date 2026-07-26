@@ -201,14 +201,14 @@
                   "actions": {
                     "Verify": {
                       "press": "documentprocessing.ext.VerificationHandler.onVerify",
-                      "visible": true,
-                      "enabled": "{= ${VerificationStatus} === 'P'}",
+                      "visible": "{= %{VerificationStatus} === 'P'}",
+                      "enabled": "{= %{VerificationStatus} === 'P'}",
                       "text": "Verify"
                     },
                     "Reject": {
                       "press": "documentprocessing.ext.VerificationHandler.onReject",
-                      "visible": true,
-                      "enabled": "{= ${VerificationStatus} === 'P'}",
+                      "visible": "{= %{VerificationStatus} === 'P'}",
+                      "enabled": "{= %{VerificationStatus} === 'P'}",
                       "text": "Reject"
                     },
                     "ShowAttachments": {
