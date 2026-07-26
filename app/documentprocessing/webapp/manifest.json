@@ -18,10 +18,10 @@
     "dataSources": {
       "mainService": {
         "//": "MOCK (CAP) backend. To switch to live S/4, set uri to the S/4 service path (/sap/opu/odata4/sap/zapi_doc_ex_header_o4/srvd_a2x/sap/zui_invoice_review_o4/0001/) and annotations to [\"localAnnotations\"]. Entity/field names are identical, so nothing else changes.",
-        "uri": "/invoice-review/",
+        "uri": "/sap/opu/odata4/sap/zapi_doc_ex_header_o4/srvd_a2x/sap/zui_invoice_review_o4/0001/",
         "type": "OData",
         "settings": {
-          "annotations": [],
+          "annotations": ["localAnnotations"],
           "odataVersion": "4.0"
         }
       },

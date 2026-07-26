@@ -134,6 +134,28 @@
         </Annotation>
       </Annotations>
 
+      <!-- Show the P/V/R code as a label everywhere the field appears (invoices
+           table + invoice header). S/4 exposes no text field, so map the code to
+           text with a conditional expression and show text only. -->
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceType/VerificationStatus">
+        <Annotation Term="Common.Text">
+          <If>
+            <Eq><Path>VerificationStatus</Path><String>V</String></Eq>
+            <String>Verified</String>
+            <If>
+              <Eq><Path>VerificationStatus</Path><String>R</String></Eq>
+              <String>Rejected</String>
+              <String>Pending</String>
+            </If>
+          </If>
+        </Annotation>
+        <Annotation Term="UI.TextArrangement" EnumMember="UI.TextArrangementType/TextOnly"/>
+        <!-- Never typed directly: changed only via the Verify/Reject actions.
+             Read-only even in edit mode (a UI hint; the Verify/Reject draft PATCH
+             still writes it). EDMX keeps a static field control (unlike CAP). -->
+        <Annotation Term="Common.FieldControl" EnumMember="Common.FieldControlType/ReadOnly"/>
+      </Annotations>
+
       <!-- ========================= InvoiceItem ========================= -->
       <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceItemType">
         <Annotation Term="UI.LineItem">

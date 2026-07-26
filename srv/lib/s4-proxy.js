@@ -212,10 +212,21 @@ function mapRowIn(map, row) {
     const lk = r2l(map, rk);
     out[lk] = rv;
   }
-  // isEditable is a local calculated element (Pending only); derive it here
-  // since delegated reads bypass CAP's calc engine.
-  if (map.entity === 'Invoice' && 'verificationStatus_code' in out) {
-    out.isEditable = out.verificationStatus_code === 'P';
+  // The invoice's on-read helper elements (IsEditable / VerificationStatusFC /
+  // VerificationStatusText) are CAP calculated elements — delegated reads bypass
+  // the calc engine, so derive them here. Without IsEditable the OP's
+  // UpdateRestrictions.Updatable lock has no value and FE leaves Edit enabled
+  // after Verify/Reject. Read the status under the current or legacy key name.
+  if (map.entity === 'Invoice') {
+    const status = out.VerificationStatus ?? out.verificationStatus_code;
+    if (status !== undefined) {
+      out.IsEditable = status === 'P';
+      out.VerificationStatusFC = 1;
+      out.VerificationStatusText =
+        status === 'P' ? 'Pending' :
+        status === 'V' ? 'Verified' :
+        status === 'R' ? 'Rejected' : status;
+    }
   }
   return out;
 }
