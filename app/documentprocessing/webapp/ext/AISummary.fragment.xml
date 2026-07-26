@@ -5,7 +5,7 @@ xmlns="sap.m" >
 		<core:HTML
 			core:require="{ AISummaryFormatter: 'documentprocessing/ext/AISummaryFormatter'}"
 			content="{
-				path: 'summary',
+				path: 'Summary',
 				formatter: 'AISummaryFormatter.sanitize'
 			}"
 			afterRendering="AISummaryFormatter.onAfterRendering" />

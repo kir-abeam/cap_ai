@@ -1,154 +1,93 @@
 using InvoiceReviewService from '../../srv/invoice-review-service';
 
+// UI annotations for the CAP MOCK service. Field/entity names match S/4, so
+// these mirror app/documentprocessing/webapp/annotations/annotations.xml (used
+// when the app points at live S/4). Keep the two in sync.
+
 // ==================================================================
-// Emails: List Report + Email Object Page (read-only grouping)
+// Email: List Report + Email Object Page
 // ==================================================================
-annotate InvoiceReviewService.Emails with @(
+annotate InvoiceReviewService.Email with @(
 
   UI.HeaderInfo : {
     TypeName       : 'Email',
     TypeNamePlural : 'Emails',
-    Title          : { $Type: 'UI.DataField', Value: emailSubject },
-    Description    : { $Type: 'UI.DataField', Value: emailSender }
+    Title          : { $Type: 'UI.DataField', Value: EmailSubject },
+    Description    : { $Type: 'UI.DataField', Value: EmailSender }
   },
 
-  // Filter bar. (The rollup status is computed per-read and not persisted, so
-  // it is not a filterable field — only real columns go here.)
-  UI.SelectionFields : [
-    emailSender,
-    emailSentDate
-  ],
+  UI.SelectionFields : [ EmailSender, EmailSentDate ],
 
-  // List Report columns — one row per email, with the rollup status colored.
   UI.LineItem : [
-    { $Type: 'UI.DataField', Value: emailSubject,  Label: 'Email Subject' },
-    { $Type: 'UI.DataField', Value: emailSentDate, Label: 'Email Sent Date' },
-    { $Type: 'UI.DataField', Value: emailSender,   Label: 'Email Sender' },
-    {
-      $Type      : 'UI.DataField',
-      Value      : statusSummary,
-      Criticality: statusCriticality,
-      Label      : 'Invoices'
-    }
+    { $Type: 'UI.DataField', Value: EmailSubject,  Label: 'Email Subject' },
+    { $Type: 'UI.DataField', Value: EmailSentDate, Label: 'Email Sent Date' },
+    { $Type: 'UI.DataField', Value: EmailSender,   Label: 'Email Sender' }
   ],
 
-  // Email Object Page. The email-body section is injected as a manifest custom
-  // section (see app/documentprocessing/webapp/manifest.json), positioned
-  // before the invoices table.
   UI.Facets : [
     {
       $Type : 'UI.ReferenceFacet',
       ID    : 'InvoicesFacet',
       Label : 'Invoices',
-      Target: 'invoices/@UI.LineItem'
+      Target: '_Invoice/@UI.LineItem'
     }
   ]
 );
 
-// Emails arrive from ingestion, so the FE Create button is hidden — but the
-// OData create path stays OPEN for the ingestion API. UI.CreateHidden is a
-// UI-only hint (hides the button); Capabilities.InsertRestrictions.Insertable
-// would instead be enforced at runtime and 405 the POST. Delete stays fully
-// blocked (UI + runtime) since nothing should remove ingested emails.
-annotate InvoiceReviewService.Emails with @(
+// Emails arrive from ingestion: hide Create in the UI (API stays open), block Delete.
+annotate InvoiceReviewService.Email with @(
   UI.CreateHidden                           : true,
   Capabilities.DeleteRestrictions.Deletable : false
 );
 
 // ==================================================================
-// Invoices: the table shown on the Email OP + the Invoice Object Page
-// (its own draft root — independently editable / verifiable)
+// Invoice: table on the Email OP + the Invoice Object Page
 // ==================================================================
-annotate InvoiceReviewService.Invoices with @(
+annotate InvoiceReviewService.Invoice with @(
 
   UI.HeaderInfo : {
     TypeName       : 'Invoice',
     TypeNamePlural : 'Invoices',
-    Title          : { $Type: 'UI.DataField', Value: documentNumber },
-    Description    : { $Type: 'UI.DataField', Value: vendorName }
+    Title          : { $Type: 'UI.DataField', Value: DocumentNumber },
+    Description    : { $Type: 'UI.DataField', Value: VendorName }
   },
 
-  // Columns of the invoices table on the Email OP (rows navigate to the
-  // Invoice OP via the Emails/invoices route).
   UI.LineItem : [
-    { $Type: 'UI.DataField', Value: documentNumber, Label: 'Document Number' },
-    { $Type: 'UI.DataField', Value: vendorName,     Label: 'Vendor Name' },
-    { $Type: 'UI.DataField', Value: totalAmount,    Label: 'Total Amount' },
-    { $Type: 'UI.DataField', Value: currency,       Label: 'Currency' },
-    {
-      $Type      : 'UI.DataField',
-      Value      : verificationStatus.name,
-      Criticality: verificationStatus.criticality,
-      Label      : 'Verification Status'
-    }
+    { $Type: 'UI.DataField', Value: DocumentNumber,     Label: 'Document Number' },
+    { $Type: 'UI.DataField', Value: VendorName,         Label: 'Vendor Name' },
+    { $Type: 'UI.DataField', Value: TotalAmount,        Label: 'Total Amount' },
+    { $Type: 'UI.DataField', Value: Currency,           Label: 'Currency' },
+    { $Type: 'UI.DataField', Value: VerificationStatus, Label: 'Verification Status' }
   ],
 
-  // Invoice Object Page layout.
   UI.Facets : [
-    {
-      $Type : 'UI.ReferenceFacet',
-      ID    : 'HeaderFacet',
-      Label : 'Invoice Header',
-      Target: '@UI.FieldGroup#Header'
-    },
-    {
-      $Type : 'UI.ReferenceFacet',
-      ID    : 'ItemsFacet',
-      Label : 'Line Items',
-      Target: 'lineItems/@UI.LineItem'
-    }
+    { $Type: 'UI.ReferenceFacet', ID: 'HeaderFacet', Label: 'Invoice Header', Target: '@UI.FieldGroup#Header' },
+    { $Type: 'UI.ReferenceFacet', ID: 'ItemsFacet',  Label: 'Line Items',     Target: '_Item/@UI.LineItem' }
   ],
 
   UI.FieldGroup #Header : {
     Data : [
-      { $Type: 'UI.DataField', Value: documentNumber,      Label: 'Document Number' },
-      { $Type: 'UI.DataField', Value: documentDate,        Label: 'Document Date' },
-      { $Type: 'UI.DataField', Value: totalAmount,         Label: 'Total Amount' },
-      { $Type: 'UI.DataField', Value: currency,            Label: 'Currency' },
-      { $Type: 'UI.DataField', Value: taxAmount,           Label: 'Tax Amount' },
-      { $Type: 'UI.DataField', Value: vendorCode,          Label: 'Vendor Code' },
-      { $Type: 'UI.DataField', Value: vendorName,          Label: 'Vendor Name' },
-      { $Type: 'UI.DataField', Value: vendorAccountNumber, Label: 'Vendor Account Number' }
+      { $Type: 'UI.DataField', Value: DocumentNumber,      Label: 'Document Number' },
+      { $Type: 'UI.DataField', Value: DocumentDate,        Label: 'Document Date' },
+      { $Type: 'UI.DataField', Value: TotalAmount,         Label: 'Total Amount' },
+      { $Type: 'UI.DataField', Value: Currency,            Label: 'Currency' },
+      { $Type: 'UI.DataField', Value: TaxAmount,           Label: 'Tax Amount' },
+      { $Type: 'UI.DataField', Value: VendorCode,          Label: 'Vendor Code' },
+      { $Type: 'UI.DataField', Value: VendorName,          Label: 'Vendor Name' },
+      { $Type: 'UI.DataField', Value: VendorAccountNumber, Label: 'Vendor Account Number' },
+      { $Type: 'UI.DataField', Value: VerificationStatus,  Label: 'Verification Status' }
     ]
-  },
-
-  // Object Page header actions
-  UI.Identification : [
-    { $Type: 'UI.DataFieldForAction', Action: 'InvoiceReviewService.verify', Label: 'Verify' },
-    { $Type: 'UI.DataFieldForAction', Action: 'InvoiceReviewService.rejectInvoice', Label: 'Reject' }
-  ]
+  }
 );
 
-// ------------------------------------------------------------------
-// Editability lock: the Invoice Object Page becomes read-only once the
-// record is no longer Pending (isEditable = false). The Edit button and
-// every input (header fields + line-item add/edit/delete) disappear.
-// ------------------------------------------------------------------
-annotate InvoiceReviewService.Invoices with @(
-  Capabilities.UpdateRestrictions       : { Updatable: isEditable },
-  Capabilities.InsertRestrictions.Insertable: false,
-  Capabilities.DeleteRestrictions.Deletable : false
-);
-
-// ------------------------------------------------------------------
-// Status value help + text arrangement
-// ------------------------------------------------------------------
-annotate InvoiceReviewService.Invoices {
-  verificationStatus @(
-    Common.Text                     : verificationStatus.name,
-    Common.Text.@UI.TextArrangement : #TextOnly,
-    Common.ValueListWithFixedValues
-  );
-}
-
-// ------------------------------------------------------------------
-// Line-items table columns (editable in draft mode)
-// ------------------------------------------------------------------
-annotate InvoiceReviewService.InvoiceLineItems with @(
+// ==================================================================
+// InvoiceItem: line-items table columns
+// ==================================================================
+annotate InvoiceReviewService.InvoiceItem with @(
   UI.LineItem : [
-    { $Type: 'UI.DataField', Value: amount,        Label: 'Amount' },
-    { $Type: 'UI.DataField', Value: glAccount,     Label: 'GL Account' },
-    { $Type: 'UI.DataField', Value: costCenter,    Label: 'Cost Center' },
-    { $Type: 'UI.DataField', Value: internalOrder, Label: 'Internal Order' }
+    { $Type: 'UI.DataField', Value: Amount,        Label: 'Amount' },
+    { $Type: 'UI.DataField', Value: GLAccount,     Label: 'GL Account' },
+    { $Type: 'UI.DataField', Value: CostCenter,    Label: 'Cost Center' },
+    { $Type: 'UI.DataField', Value: InternalOrder, Label: 'Internal Order' }
   ]
 );

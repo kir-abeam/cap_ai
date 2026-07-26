@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Local Fiori Elements UI annotations for the S/4HANA invoice-review service
+  (com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001), consumed DIRECTLY by
+  the app (no CAP proxy). S/4 ships no UI annotations, so the List Report /
+  Object Page layout lives here, authored against the S/4 element names.
+
+  S/4 is draft-enabled, so Edit/Save + draft come for free from the service.
+  Differences vs. the old CAP model:
+   - verify()/rejectInvoice() actions do not exist on S/4 -> change the
+     VerificationStatus field in edit mode instead.
+   - statusCriticality/statusSummary rollup + isEditable lock were CAP virtuals
+     and are omitted.
+-->
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:Reference Uri="https://sap.github.io/odata-vocabularies/vocabularies/UI.xml">
+    <edmx:Include Namespace="com.sap.vocabularies.UI.v1" Alias="UI"/>
+  </edmx:Reference>
+  <edmx:Reference Uri="https://sap.github.io/odata-vocabularies/vocabularies/Common.xml">
+    <edmx:Include Namespace="com.sap.vocabularies.Common.v1" Alias="Common"/>
+  </edmx:Reference>
+  <edmx:Reference Uri="https://oasis-tcs.github.io/odata-vocabularies/vocabularies/Org.OData.Capabilities.V1.xml">
+    <edmx:Include Namespace="Org.OData.Capabilities.V1" Alias="Capabilities"/>
+  </edmx:Reference>
+  <edmx:DataServices>
+    <Schema xmlns="http://docs.oasis-open.org/odata/ns/edm"
+            Namespace="local.invoicereview">
+
+      <!-- ============================ Email ============================ -->
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.EmailType">
+        <Annotation Term="UI.HeaderInfo">
+          <Record>
+            <PropertyValue Property="TypeName" String="Email"/>
+            <PropertyValue Property="TypeNamePlural" String="Emails"/>
+            <PropertyValue Property="Title">
+              <Record Type="UI.DataField"><PropertyValue Property="Value" Path="EmailSubject"/></Record>
+            </PropertyValue>
+            <PropertyValue Property="Description">
+              <Record Type="UI.DataField"><PropertyValue Property="Value" Path="EmailSender"/></Record>
+            </PropertyValue>
+          </Record>
+        </Annotation>
+
+        <Annotation Term="UI.SelectionFields">
+          <Collection>
+            <PropertyPath>EmailSender</PropertyPath>
+            <PropertyPath>EmailSentDate</PropertyPath>
+          </Collection>
+        </Annotation>
+
+        <Annotation Term="UI.LineItem">
+          <Collection>
+            <Record Type="UI.DataField"><PropertyValue Property="Value" Path="EmailSubject"/><PropertyValue Property="Label" String="Email Subject"/></Record>
+            <Record Type="UI.DataField"><PropertyValue Property="Value" Path="EmailSentDate"/><PropertyValue Property="Label" String="Email Sent Date"/></Record>
+            <Record Type="UI.DataField"><PropertyValue Property="Value" Path="EmailSender"/><PropertyValue Property="Label" String="Email Sender"/></Record>
+          </Collection>
+        </Annotation>
+
+        <Annotation Term="UI.Facets">
+          <Collection>
+            <Record Type="UI.ReferenceFacet">
+              <PropertyValue Property="ID" String="InvoicesFacet"/>
+              <PropertyValue Property="Label" String="Invoices"/>
+              <PropertyValue Property="Target" AnnotationPath="_Invoice/@UI.LineItem"/>
+            </Record>
+          </Collection>
+        </Annotation>
+
+        <!-- Emails arrive from ingestion: hide Create, block Delete in the UI -->
+        <Annotation Term="UI.CreateHidden" Bool="true"/>
+      </Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.Container/Email">
+        <Annotation Term="Capabilities.DeleteRestrictions">
+          <Record><PropertyValue Property="Deletable" Bool="false"/></Record>
+        </Annotation>
+      </Annotations>
+
+      <!-- =========================== Invoice =========================== -->
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceType">
+        <Annotation Term="UI.HeaderInfo">
+          <Record>
+            <PropertyValue Property="TypeName" String="Invoice"/>
+            <PropertyValue Property="TypeNamePlural" String="Invoices"/>
+            <PropertyValue Property="Title">
+              <Record Type="UI.DataField"><PropertyValue Property="Value" Path="DocumentNumber"/></Record>
+            </PropertyValue>
+            <PropertyValue Property="Description">
+              <Record Type="UI.DataField"><PropertyValue Property="Value" Path="VendorName"/></Record>
+            </PropertyValue>
+          </Record>
+        </Annotation>
+
+        <Annotation Term="UI.LineItem">
+          <Collection>
+            <Record Type="UI.DataField"><PropertyValue Property="Value" Path="DocumentNumber"/><PropertyValue Property="Label" String="Document Number"/></Record>
+            <Record Type="UI.DataField"><PropertyValue Property="Value" Path="VendorName"/><PropertyValue Property="Label" String="Vendor Name"/></Record>
+            <Record Type="UI.DataField"><PropertyValue Property="Value" Path="TotalAmount"/><PropertyValue Property="Label" String="Total Amount"/></Record>
+            <Record Type="UI.DataField"><PropertyValue Property="Value" Path="Currency"/><PropertyValue Property="Label" String="Currency"/></Record>
+            <Record Type="UI.DataField"><PropertyValue Property="Value" Path="VerificationStatus"/><PropertyValue Property="Label" String="Verification Status"/></Record>
+          </Collection>
+        </Annotation>
+
+        <Annotation Term="UI.Facets">
+          <Collection>
+            <Record Type="UI.ReferenceFacet">
+              <PropertyValue Property="ID" String="HeaderFacet"/>
+              <PropertyValue Property="Label" String="Invoice Header"/>
+              <PropertyValue Property="Target" AnnotationPath="@UI.FieldGroup#Header"/>
+            </Record>
+            <Record Type="UI.ReferenceFacet">
+              <PropertyValue Property="ID" String="ItemsFacet"/>
+              <PropertyValue Property="Label" String="Line Items"/>
+              <PropertyValue Property="Target" AnnotationPath="_Item/@UI.LineItem"/>
+            </Record>
+          </Collection>
+        </Annotation>
+
+        <Annotation Term="UI.FieldGroup" Qualifier="Header">
+          <Record>
+            <PropertyValue Property="Data">
+              <Collection>
+                <Record Type="UI.DataField"><PropertyValue Property="Value" Path="DocumentNumber"/><PropertyValue Property="Label" String="Document Number"/></Record>
+                <Record Type="UI.DataField"><PropertyValue Property="Value" Path="DocumentDate"/><PropertyValue Property="Label" String="Document Date"/></Record>
+                <Record Type="UI.DataField"><PropertyValue Property="Value" Path="TotalAmount"/><PropertyValue Property="Label" String="Total Amount"/></Record>
+                <Record Type="UI.DataField"><PropertyValue Property="Value" Path="Currency"/><PropertyValue Property="Label" String="Currency"/></Record>
+                <Record Type="UI.DataField"><PropertyValue Property="Value" Path="TaxAmount"/><PropertyValue Property="Label" String="Tax Amount"/></Record>
+                <Record Type="UI.DataField"><PropertyValue Property="Value" Path="VendorCode"/><PropertyValue Property="Label" String="Vendor Code"/></Record>
+                <Record Type="UI.DataField"><PropertyValue Property="Value" Path="VendorName"/><PropertyValue Property="Label" String="Vendor Name"/></Record>
+                <Record Type="UI.DataField"><PropertyValue Property="Value" Path="VendorAccountNumber"/><PropertyValue Property="Label" String="Vendor Account Number"/></Record>
+                <Record Type="UI.DataField"><PropertyValue Property="Value" Path="VerificationStatus"/><PropertyValue Property="Label" String="Verification Status"/></Record>
+              </Collection>
+            </PropertyValue>
+          </Record>
+        </Annotation>
+      </Annotations>
+
+      <!-- ========================= InvoiceItem ========================= -->
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceItemType">
+        <Annotation Term="UI.LineItem">
+          <Collection>
+            <Record Type="UI.DataField"><PropertyValue Property="Value" Path="Amount"/><PropertyValue Property="Label" String="Amount"/></Record>
+            <Record Type="UI.DataField"><PropertyValue Property="Value" Path="GLAccount"/><PropertyValue Property="Label" String="GL Account"/></Record>
+            <Record Type="UI.DataField"><PropertyValue Property="Value" Path="CostCenter"/><PropertyValue Property="Label" String="Cost Center"/></Record>
+            <Record Type="UI.DataField"><PropertyValue Property="Value" Path="InternalOrder"/><PropertyValue Property="Label" String="Internal Order"/></Record>
+          </Collection>
+        </Annotation>
+      </Annotations>
+
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>

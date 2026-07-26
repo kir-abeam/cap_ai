@@ -5,7 +5,7 @@ sap.ui.define([
 ], function (Fragment, JSONModel, MessageToast) {
   "use strict";
 
-  var SERVICE = "/invoice-review";
+  var SERVICE = "/sap/opu/odata4/sap/zapi_doc_ex_header_o4/srvd_a2x/sap/zui_invoice_review_o4/0001";
 
   // Named singleton so it can be passed as the fragment's `controller`: the
   // `.onOpenAttachment` / `.onCloseAttachments` press handlers in
@@ -30,18 +30,18 @@ sap.ui.define([
 
       var oModel = oContext.getModel();
 
-      // Navigate from the invoice context to read its attachments. Non-draft:
-      // there is no IsActiveEntity, so the media stream key is just the ID.
-      var oListBinding = oModel.bindList("attachments", oContext);
+      // Navigate to this invoice's attachments via the S/4 _Attachment nav.
+      // S/4 is draft-enabled, so the media key needs IsActiveEntity=true.
+      var oListBinding = oModel.bindList("_Attachment", oContext);
 
       var aContexts = await oListBinding.requestContexts(0, 100);
       var aItems = aContexts.map(function (oCtx) {
         var oData = oCtx.getObject();
-        var sKey = "ID=" + oData.ID + ",IsActiveEntity=" + oData.IsActiveEntity;
+        var sKey = "AttachmentUUID=" + oData.AttachmentUUID + ",IsActiveEntity=true";
         return {
-          fileName: oData.fileName,
-          mediaType: oData.mediaType,
-          url: SERVICE + "/Attachments(" + sKey + ")/content"
+          fileName: oData.FileName,
+          mediaType: oData.MediaType,
+          url: SERVICE + "/Attachment(" + sKey + ")/Content"
         };
       });
 

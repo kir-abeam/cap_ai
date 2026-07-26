@@ -1,34 +1,19 @@
 using { abeam.invoicereview as ir } from '../db/schema';
 
+/**
+ * Mock backing service for the invoice-review app. Its entity/field names match
+ * the S/4 service ZUI_INVOICE_REVIEW_O4 exactly, so the same Fiori app can point
+ * here (mock) or at S/4 (live) by swapping only the manifest dataSource.
+ *
+ * Email is the draft root (mirrors S/4's DraftRoot); its compositions become
+ * draft nodes, so Edit/Save works on mock data just like on S/4.
+ */
 service InvoiceReviewService @(path: '/invoice-review') {
 
-  // Email grouping parent. NON-DRAFT: required for the S/4 delegation to work —
-  // with @odata.draft.enabled, FE emits draft-shaped queries (IsActiveEntity,
-  // SiblingEntity, DraftAdministrativeData) that can't be translated to the
-  // remote S/4 service, which manages its own draft. The s4-proxy write
-  // handlers drive S/4's draft flow under the hood; FE sees a plain service.
-  // The after-READ handler hydrates the rollup status virtual fields.
-  entity Emails as projection on ir.Emails;
+  @odata.draft.enabled
+  entity Email       as projection on ir.Email;
 
-  entity Invoices as projection on ir.Invoices actions {
-
-    @(
-      Core.OperationAvailable          : { $edmJson: { $Path: 'in/isEditable' } },
-      Common.SideEffects.TargetEntities: [ in ]
-    )
-    action verify() returns Invoices;
-
-    @(
-      Core.OperationAvailable          : { $edmJson: { $Path: 'in/isEditable' } },
-      Common.SideEffects.TargetEntities: [ in ]
-    )
-    action rejectInvoice() returns Invoices;
-  };
-
-  entity InvoiceLineItems as projection on ir.InvoiceLineItems;
-
-  entity Attachments      as projection on ir.Attachments;
-
-  @readonly
-  entity VerificationStatuses as projection on ir.VerificationStatuses;
+  entity Invoice     as projection on ir.Invoice;
+  entity InvoiceItem as projection on ir.InvoiceItem;
+  entity Attachment  as projection on ir.Attachment;
 }

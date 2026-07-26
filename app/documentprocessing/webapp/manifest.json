@@ -17,11 +17,19 @@
     },
     "dataSources": {
       "mainService": {
+        "//": "MOCK (CAP) backend. To switch to live S/4, set uri to the S/4 service path (/sap/opu/odata4/sap/zapi_doc_ex_header_o4/srvd_a2x/sap/zui_invoice_review_o4/0001/) and annotations to [\"localAnnotations\"]. Entity/field names are identical, so nothing else changes.",
         "uri": "/invoice-review/",
         "type": "OData",
         "settings": {
           "annotations": [],
           "odataVersion": "4.0"
+        }
+      },
+      "localAnnotations": {
+        "uri": "annotations/annotations.xml",
+        "type": "ODataAnnotation",
+        "settings": {
+          "localUri": "annotations/annotations.xml"
         }
       }
     }
@@ -89,12 +97,12 @@
           "target": "EmailsList"
         },
         {
-          "pattern": "Emails({key}):?query:",
+          "pattern": "Email({key}):?query:",
           "name": "EmailsObjectPage",
           "target": "EmailsObjectPage"
         },
         {
-          "pattern": "Emails({key})/invoices({invoicesKey}):?query:",
+          "pattern": "Email({key})/_Invoice({invoicesKey}):?query:",
           "name": "InvoiceObjectPage",
           "target": "InvoiceObjectPage"
         }
@@ -106,10 +114,10 @@
           "name": "sap.fe.templates.ListReport",
           "options": {
             "settings": {
-              "contextPath": "/Emails",
+              "contextPath": "/Email",
               "variantManagement": "Page",
               "navigation": {
-                "Emails": {
+                "Email": {
                   "detail": {
                     "route": "EmailsObjectPage"
                   }
@@ -132,16 +140,16 @@
           "options": {
             "settings": {
               "editableHeaderContent": false,
-              "contextPath": "/Emails",
+              "contextPath": "/Email",
               "navigation": {
-                "invoices": {
+                "_Invoice": {
                   "detail": {
                     "route": "InvoiceObjectPage"
                   }
                 }
               },
               "controlConfiguration": {
-                "invoices/@com.sap.vocabularies.UI.v1.LineItem": {
+                "_Invoice/@com.sap.vocabularies.UI.v1.LineItem": {
                   "tableSettings": {
                     "type": "ResponsiveTable"
                   }
@@ -180,9 +188,9 @@
           "options": {
             "settings": {
               "editableHeaderContent": false,
-              "contextPath": "/Emails/invoices",
+              "contextPath": "/Email/_Invoice",
               "controlConfiguration": {
-                "lineItems/@com.sap.vocabularies.UI.v1.LineItem": {
+                "_Item/@com.sap.vocabularies.UI.v1.LineItem": {
                   "tableSettings": {
                     "type": "ResponsiveTable"
                   }
@@ -191,15 +199,23 @@
               "content": {
                 "header": {
                   "actions": {
+                    "Verify": {
+                      "press": "documentprocessing.ext.VerificationHandler.onVerify",
+                      "visible": true,
+                      "enabled": "{= ${VerificationStatus} === 'P'}",
+                      "text": "Verify"
+                    },
+                    "Reject": {
+                      "press": "documentprocessing.ext.VerificationHandler.onReject",
+                      "visible": true,
+                      "enabled": "{= ${VerificationStatus} === 'P'}",
+                      "text": "Reject"
+                    },
                     "ShowAttachments": {
                       "press": "documentprocessing.ext.AttachmentsHandler.onShowAttachments",
                       "visible": true,
                       "enabled": true,
-                      "text": "Attachments",
-                      "position": {
-                        "placement": "After",
-                        "anchor": "DataFieldForAction::InvoiceReviewService.rejectInvoice"
-                      }
+                      "text": "Attachments"
                     }
                   }
                 }

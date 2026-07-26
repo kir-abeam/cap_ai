@@ -5,7 +5,7 @@
     <core:HTML
       core:require="{ EmailBodyFormatter: 'documentprocessing/ext/EmailBodyFormatter' }"
       content="{
-        path: 'emailBodyHtml',
+        path: 'EmailBodyHtml',
         formatter: 'EmailBodyFormatter.sanitize'
       }"
       afterRendering="EmailBodyFormatter.onAfterRendering" />

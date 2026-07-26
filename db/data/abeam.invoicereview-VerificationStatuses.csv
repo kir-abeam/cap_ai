@@ -1,4 +1,0 @@
-code;name;descr;criticality
-P;Pending;Awaiting verification;2
-V;Verified;Verified by reviewer;3
-R;Rejected;Rejected by reviewer;1
