@@ -1,11 +1,26 @@
 const cds = require('@sap/cds');
 
-const fs   = require('fs');
+const fs = require('fs');
 const path = require('path');
 
 module.exports = class DocumentProcessingService extends cds.ApplicationService {
 
     async init() {
+
+        this.on('summarizeEmail', async (req) => {
+            const { files, email } = req.data;
+
+            try {
+                const aiResponse = await this._summarizeEmail(files, email);
+                return this._parseAIJson(aiResponse);
+
+            } catch (error) {
+                console.error(error.response?.data);
+                console.error(error.response?.status);
+                console.error(error);
+                req.error(500, 'Failed to generate AI response: ' + error.message);
+            }
+        });
 
         this.on('getInvoicePages', async (req) => {
             const { fileContent } = req.data;
@@ -13,7 +28,7 @@ module.exports = class DocumentProcessingService extends cds.ApplicationService 
             try {
                 const aiResponse = await this._getInvoicePages(fileContent);
                 return JSON.parse(aiResponse);
-                
+
             } catch (error) {
                 console.error('AI generation error:', error);
                 req.error(500, 'Failed to generate AI response: ' + error.message);
@@ -26,7 +41,7 @@ module.exports = class DocumentProcessingService extends cds.ApplicationService 
             try {
                 const aiResponse = await this._extractInvoice(invoiceContent, emailContent, ocrResults);
                 return JSON.parse(aiResponse);
-                
+
             } catch (error) {
                 console.error('AI generation error:', error);
                 req.error(500, 'Failed to generate AI response: ' + error.message);
@@ -34,6 +49,19 @@ module.exports = class DocumentProcessingService extends cds.ApplicationService 
         });
 
         await super.init();
+    }
+
+    async _parseAIJson(text) {
+        text = text.trim();
+
+        if (text.startsWith("```")) {
+            text = text
+                .replace(/^```json\s*/i, "")
+                .replace(/^```\s*/i, "")
+                .replace(/\s*```$/, "");
+        }
+
+        return JSON.parse(text);
     }
 
     async _createClient() {
@@ -84,6 +112,66 @@ module.exports = class DocumentProcessingService extends cds.ApplicationService 
         };
     }
 
+    async _buildFileItem(files) {
+
+        return files.map((file) => ({
+            type: 'file',
+            file: {
+                file_data: `data:application/pdf;base64,${file.content}`,
+                filename: file.name,
+            },
+        }));
+    }
+
+    async _summarizeEmail(files, email) {
+
+        const fallbackPDF = path.join(__dirname, '../srv/Invoice.pdf');
+        if (files == undefined || files.length == 0) {
+            files = [];
+            let fileContent = fs.readFileSync(fallbackPDF).toString('base64');
+            files.push({ name: "Invoice.pdf", content: fileContent });
+        }
+
+        email.content = Buffer
+            .from(email.content, "base64")
+            .toString("utf8");
+
+        const userContent = [
+            ...(await this._buildFileItem(files)),
+            {
+                type: 'text',
+                text:
+                    `
+                Email Subject: ${email.subject}
+                Email Content in HTML: ${email.content}
+                `
+            },
+            {
+                type: 'text',
+                text:
+                    `
+                Based on the email and PDF file, please summarize the intent of the message and then output it into a nice HTML format. 
+                After summarization, list all the PDF files which contains invoices.
+                Output Format (Strict JSON ONLY — No explanation):
+                {
+                    "summary": <HTML format of the summary>,
+                    "invoiceFileNames": [<File name of invoices, ...>]
+                }
+                `
+            }
+        ];
+
+        const client = await this._createClient();
+
+        const response = await this._runPrompt(
+            client,
+            `You are an expert invoice processing system.`,
+            userContent
+        );
+
+        return response;
+    }
+
     async _getInvoicePages(fileContent) {
 
         const fallbackPDF = path.join(__dirname, '../srv/Invoice.pdf');
@@ -96,8 +184,8 @@ module.exports = class DocumentProcessingService extends cds.ApplicationService 
             await this._buildContentItem(fileContent),
             {
                 type: 'text',
-                text: 
-                `
+                text:
+                    `
                 Based on the content of a PDF file, please identify the page ranges that contain invoice data. 
                 Output Format (Strict JSON ONLY — No explanation):
                 [
@@ -141,8 +229,8 @@ module.exports = class DocumentProcessingService extends cds.ApplicationService 
             await this._buildContentItem(invoiceContent),
             {
                 type: 'text',
-                text: 
-                `
+                text:
+                    `
                 You will be given:
                 1. The content of an invoice PDF file (base64 encoded).
                 2. The content of an email (plain text).
