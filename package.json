@@ -5,7 +5,9 @@
     "@sap-ai-sdk/langchain": "^2.10.0",
     "@sap-ai-sdk/orchestration": "^2.13.0",
     "@sap/cds": "^9",
-    "@sap/xssec": "^4"
+    "@sap/xssec": "^4",
+    "https-proxy-agent": "^7.0.6",
+    "pdf-lib": "^1.17.1"
   },
   "devDependencies": {
     "@cap-js/sqlite": "^2.4",
@@ -20,6 +22,12 @@
   },
   "private": true,
   "cds": {
+    "server": {
+      "body_parser": {
+        "comment": "processEmail carries base64 PDF attachments; the 100kb default rejects any real invoice.",
+        "limit": "50mb"
+      }
+    },
     "requires": {
       "[production]": {
         "auth": "xsuaa"
@@ -28,7 +36,11 @@
         "kind": "odata",
         "model": "srv/external/ZUI_INVOICE_REVIEW_O4",
         "csrf": true,
-        "csrfInBatch": true
+        "csrfInBatch": true,
+        "vcap": {
+          "comment": "Maps the bound CF user-provided service (see mta.yaml) onto this requires key, so credentials resolve when deployed and invoice-writer picks the 's4' target. Locally the `s4` profile overrides this from .cdsrc-private.json; without VCAP_SERVICES it is inert.",
+          "name": "ABMY_INVOICE_REVIEW"
+        }
       },
       "html5-repo": true
     }

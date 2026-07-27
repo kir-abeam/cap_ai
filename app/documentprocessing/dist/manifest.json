@@ -187,7 +187,7 @@
 												"placement": "Before",
 												"anchor": "InvoicesFacet"
 											},
-											"title": "Email"
+											"title": "Email Body"
 										},
 										"AISummary": {
 											"template": "documentprocessing.ext.AISummary",

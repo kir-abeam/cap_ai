@@ -6,11 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `ai_cap` is a SAP Cloud Application Programming (CAP) Node.js project with two independent parts:
 
-1. **`DocumentProcessingService`** (`/document-processing-service`) — AI extraction of invoice data from PDFs via LLMs on SAP AI Core. Action-only, no persistence:
-   - `getInvoicePages(fileContent)` — identifies page ranges in a (possibly multi-invoice) PDF, returns `many PageRange`.
-   - `extractInvoice(invoiceContent, emailContent, ocrResults)` — extracts a structured `InvoiceHeader` (with `lineItems`) from a PDF plus email text plus existing OCR JSON.
+1. **`DocumentProcessingService`** (`/document-processing-service`) — AI extraction of invoice data from PDFs via LLMs on SAP AI Core:
+   - **`processEmail(files, email)` — the primary entry point**: runs the whole pipeline in one call and **persists** the result. See "processEmail pipeline" below.
+   - `summarizeEmail(files, email)` — HTML summary + the names of the attachments that contain invoices, returns `SummaryOutput`.
+   - `getInvoicePages(fileContent)` — identifies page ranges in a (possibly multi-invoice) PDF, returns `many PageRange` (**1-based, inclusive, non-overlapping** — the splitter depends on it).
+   - `extractInvoice(invoiceContent, emailContent)` — extracts a structured `InvoiceHeader` (with `lineItems`) from a PDF plus email text.
 
-   All inputs are `LargeString` (base64 PDF / plain text / JSON string). Return types are CDS `type`s in `srv/DocumentProcessingService.cds`.
+   The three single-stage actions are stateless and exist for debugging one step at a time; `processEmail` composes them. All PDF/text inputs are `LargeString` (base64 PDF / base64 HTML). Return types are CDS `type`s in `srv/DocumentProcessingService.cds`.
 
 2. **`InvoiceReviewService`** (`/invoice-review`) — a persisted, Fiori-facing service backing a **Fiori Elements List Report + Object Page** app (`app/invoicereview/`) for reviewing and verifying extracted invoices. See "Invoice Review app" below.
 
@@ -18,11 +20,43 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - `npm start` — runs `cds-serve` (production-style serve).
 - `npm run hybrid` — runs `cds watch --profile hybrid`; this is the primary dev loop. The `hybrid` profile binds to a real SAP AI Core instance via `.cdsrc-private.json` (gitignored), so it needs Cloud Foundry credentials for the `default_aicore` service in the `ABeam Consulting Ltd.` org / `dev` space.
-- Manual testing: use `test/request.http` (REST Client). Both actions accept an empty body `{}` and fall back to bundled sample data (see below), so you can exercise the AI path without supplying a PDF.
+- Manual testing: use `test/request.http` (REST Client). Every action accepts an empty body `{}` and falls back to bundled sample data (see below), so you can exercise the AI path without supplying a PDF.
 
 - Fiori app (Invoice Review): run `cds watch` (or `cds serve --in-memory`), then open `http://localhost:4004/invoicereview/webapp/index.html`. SQLite auto-deploys `db/schema.cds` and loads the CSV seed under `db/data/`.
 
-There is no test runner, linter, or build step configured. `@cap-js/sqlite` (dev) provides the in-memory persistence for `InvoiceReviewService`; `DocumentProcessingService` remains action-only.
+There is no test runner, linter, or build step configured. `@cap-js/sqlite` (dev) provides the in-memory persistence for `InvoiceReviewService` and for `processEmail`'s local write target.
+
+`cds.server.body_parser.limit` is raised to `50mb` in `package.json` — `processEmail` carries base64 PDF attachments and CAP's 100kb default rejects any real invoice with a 413.
+
+## processEmail pipeline
+
+`processEmail(files, email)` is the single call that turns a received email into reviewable invoices. Implemented by `_processEmail` in `srv/DocumentProcessingService.js`:
+
+1. **Summarize** — `_summarizeEmail` returns the HTML summary and `invoiceFileNames`.
+2. **Match** — those names are resolved back to the uploaded `files` (case-insensitive basename). Nothing matches → process *all* attachments and warn.
+3. **Page ranges** — `_getInvoicePages` per matched file. Empty or unparseable → fall back to `1..pageCount` (one invoice per document) and warn.
+4. **Split** — `srv/lib/pdf-split.js` (`pdf-lib`) cuts one standalone PDF per range. Ranges are clamped to the document; degenerate ones are skipped rather than throwing.
+5. **Extract** — `_extractInvoice` per split part (`Promise.all` within a file).
+6. **Persist** — `srv/lib/invoice-writer.js` creates `Email` + `Invoice` + `InvoiceItem` + `Attachment` (the split PDF), status `P`.
+
+**Failures degrade into `warnings`, not errors**: a bad attachment or a failed extraction costs only that file/invoice; the email and everything else still get created. The `ProcessEmailResult` carries `emailUUID`, `target`, `summary`, the per-invoice `startPage/endPage/header`, and `warnings`.
+
+### Where it writes (`srv/lib/invoice-writer.js`)
+
+`writeTarget()` picks the backend at runtime — **`s4`** when `cds.env.requires.ZUI_INVOICE_REVIEW_O4` has credentials/binding (i.e. `npm run s4`), **`local`** otherwise. Same test `srv/server.js` uses for the dev proxy. `INVOICE_WRITE_TARGET=local|s4` overrides.
+
+- **local** — plain `INSERT`s into the `abeam.invoicereview` tables inside one `db.tx`. Draft is a UI concern; these are the active rows, exactly like the CSV seed.
+- **s4** — the draft-enabled RAP service takes **no deep insert**, so the graph is created node by node inside one Email draft: `POST Email` (creates the draft) → `POST Email(…,IsActiveEntity=false)/_Invoice` → `…/_Item` and `…/_Attachment` (`Content` as a **base64 string**, S/4 types it `Edm.Binary`) → `POST …/<ns>.Activate`. Any failure after the draft exists triggers `<ns>.Discard` so no orphan draft locks the email. `<ns>` is hard-coded `com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001` — the saved EDMX carries **no** `Common.DraftRoot` annotation to read action names from (unlike live `$metadata`, which is what `VerificationHandler.js` uses client-side).
+
+**Null-valued properties are stripped from S/4 payloads** (`compact()` in `invoice-writer.js`). Almost every property in the EDMX is `Nullable="false"` — ABAP fields have initial values, not nulls — so an explicit `null` earns `400 Property '<name>' at offset '<n>' has invalid value 'null'`. Omitting it lets RAP apply the initial value (`''`/`0`). The local backend keeps the nulls, so "not found" stays distinguishable from an empty string there; on S/4 that distinction does not exist.
+
+**Every S/4 request must set `content-type: application/json` explicitly** (`_send` in `invoice-writer.js` does). CAP's remote client only adds that header when `requestConfig.data` is a plain object (`libx/_runtime/remote/utils/query.js`); otherwise the POST reaches Gateway with no content type, Gateway falls back to XML/Atom parsing and answers **400 "Error while parsing an XML stream"** — an error about *our request body*, not about any XML response. Caller-supplied headers are merged last by `_getHeaders`, so they win. `accept: application/json` is set for the same reason: it keeps error bodies in the shape CAP's client reads (`error.message.value`), so failures surface with S/4's real text instead of a generic one. RAP is also free to assign its own keys, so `_writeS4` continues from the key S/4 echoes back rather than the generated one.
+
+### Field mapping and the base64 convention
+
+Extraction is camelCase, persistence is PascalCase and identical on both backends: `invoiceNumber→DocumentNumber`, `invoiceDate→DocumentDate`, `payee*→Vendor*`, `lineItems→_Item`. Values pass through `str(max)/num/isoDate` coercers — the prompt returns `""` for "not found" (must become `null`), amounts like `"RM292,680.00"`, and unbounded strings that would blow S/4's `MaxLength`.
+
+**`Email.EmailBodyHtml` and `Email.Summary` are stored base64-encoded**, matching the CSV seed and both Fiori formatters (`EmailBodyFormatter.js` / `AISummaryFormatter.js` `atob` before rendering into the iframe `srcdoc`). So `email.content` is stored **verbatim** (it already arrives base64) and the LLM's plain-HTML summary is **encoded** on the way in. Decoding happens only to build prompt input — never on the write path.
 
 ## Invoice Review app
 
@@ -58,13 +92,15 @@ The invoice-review app runs against **either** the local CAP mock (default `cds 
 - **LLM access goes through `@sap-ai-sdk/orchestration`'s `OrchestrationClient`** (`_createClient` in `srv/DocumentProcessingService.js`), not the `@sap-ai-sdk/langchain` package listed in `package.json`. The orchestration package is resolved transitively; if you add direct usage, add it to `package.json` explicitly.
 - **Model and resource group are env-configurable**: `AICORE_INVOICE_MODEL` (default `anthropic--claude-4.6-sonnet`) and `AICORE_RESOURCE_GROUP` (default `abmy-project`). These target deployments configured in SAP AI Core, not the public Anthropic API — do not swap in raw `claude-*` model IDs or Anthropic SDK calls.
 - **PDFs are sent as multimodal content items**: `_buildContentItem` wraps base64 PDF bytes as a `type: 'file'` message part (`data:application/pdf;base64,...`). User prompts are arrays mixing this file item with `type: 'text'` instructions.
-- **Prompts demand strict JSON output.** Both handlers `JSON.parse` the model response directly and `req.error(500, ...)` on failure — there is no markdown-fence stripping or repair. The extraction prompt encodes detailed business rules (payee/GL/cost-center/internal-order regexes, line-item summation logic, OCR fallback precedence); treat that prompt text as the spec when changing extraction behavior.
-- **Dev fallbacks are hardcoded** in `_getInvoicePages` / `_extractInvoice`: when an input is empty, the code reads `srv/Invoice.pdf` (pages) or `srv/Invoice_3.pdf` (extract) and injects a canned email string and a large canned OCR JSON blob. These sample PDFs live in `srv/`. (Note: comments in `test/request.http` reference `test/Invoice*.pdf`, but the actual fallback files are in `srv/`.)
+- **Prompts demand strict JSON output.** Every response goes through `_parseAIJson`, which strips a markdown fence if present and then `JSON.parse`s — there is no further repair, and a parse failure surfaces as a 500 (single-stage actions) or a warning (inside `processEmail`). The extraction prompt encodes detailed business rules (payee/GL/cost-center/internal-order regexes, line-item summation logic); treat that prompt text as the spec when changing extraction behavior. Its emitted key is `lineItems`, which must keep matching `InvoiceHeader.lineItems` — CAP silently drops the array otherwise.
+- **`_runPrompt` defaults to `max_tokens: 8000`** (overridable per call). A low ceiling truncates a multi-line-item extraction or a multi-invoice page-range list mid-JSON, which then fails to parse.
+- **Dev fallbacks are hardcoded** in `_processEmailFallbacks` / `_getInvoicePages` / `_extractInvoice`: when an input is empty, the code reads `srv/Invoice.pdf` (pipeline, pages) or `srv/Invoice_3.pdf` (extract) and injects a canned email. These sample PDFs live in `srv/`.
 - **Auth**: `xsuaa` is only required under the `[production]` profile (`package.json` `cds.requires`). Dev/hybrid runs are open. `xs-security.json` currently defines no scopes or roles.
 
 ## Layout
 
-- `srv/` — the service (`.cds` model + `.js` implementation) and bundled sample invoice PDFs.
-- `db/` — domain models would go here; currently only `undeploy.json` (HANA undeploy allowlist). No entities defined yet.
-- `app/` — UI frontends (empty).
+- `srv/` — both services (`.cds` model + `.js` implementation), the S/4 external model under `srv/external/`, and bundled sample invoice PDFs.
+- `srv/lib/` — pipeline helpers with no CAP coupling: `pdf-split.js` (page-range splitting via `pdf-lib`) and `invoice-writer.js` (field mapping + the local/S/4 write paths).
+- `db/` — `schema.cds` (`abeam.invoicereview`), CSV seed under `db/data/`, `undeploy.json` (HANA undeploy allowlist).
+- `app/` — the `documentprocessing` Fiori Elements app and the approuter config.
 - `test/request.http` — manual HTTP requests against the running service.
