@@ -1,0 +1,26 @@
+{
+  "welcomeFile": "/documentprocessing/index.html",
+  "authenticationMethod": "route",
+  "routes": [
+    {
+      "source": "^/sap/(.*)$",
+      "target": "/sap/$1",
+      "destination": "ABMY_INVOICE_REVIEW_S4",
+      "authenticationType": "xsuaa",
+      "csrfProtection": false
+    },
+    {
+      "source": "^/(odata|document-processing-service|invoice-review)/(.*)$",
+      "target": "/$1/$2",
+      "destination": "srv-api",
+      "authenticationType": "xsuaa",
+      "csrfProtection": false
+    },
+    {
+      "source": "^(.*)$",
+      "target": "$1",
+      "service": "html5-apps-repo-rt",
+      "authenticationType": "xsuaa"
+    }
+  ]
+}

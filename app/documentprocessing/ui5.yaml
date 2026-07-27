@@ -26,3 +26,14 @@ builder:
     excludes:
       - /test/**
       - /localService/**
+  customTasks:
+    - name: ui5-task-zipper
+      afterTask: generateVersionInfo
+      configuration:
+        archiveName: documentprocessing
+        relativePaths: true
+        additionalFiles:
+          - xs-app.json
+resources:
+  configuration:
+    propertiesFileSourceEncoding: UTF-8
