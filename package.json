@@ -4,6 +4,9 @@
   "dependencies": {
     "@sap-ai-sdk/langchain": "^2.10.0",
     "@sap-ai-sdk/orchestration": "^2.13.0",
+    "@sap-cloud-sdk/connectivity": "^4.8.0",
+    "@sap-cloud-sdk/http-client": "^4.8.0",
+    "@sap-cloud-sdk/resilience": "^4.8.0",
     "@sap/cds": "^9",
     "@sap/xssec": "^4",
     "https-proxy-agent": "^7.0.6",
@@ -37,9 +40,11 @@
         "model": "srv/external/ZUI_INVOICE_REVIEW_O4",
         "csrf": true,
         "csrfInBatch": true,
-        "vcap": {
-          "comment": "Maps the bound CF user-provided service (see mta.yaml) onto this requires key, so credentials resolve when deployed and invoice-writer picks the 's4' target. Locally the `s4` profile overrides this from .cdsrc-private.json; without VCAP_SERVICES it is inert.",
-          "name": "ABMY_INVOICE_REVIEW"
+        "[production]": {
+          "comment": "Deployed, the write path reaches S/4 through the same subaccount destination the UI reads through (the approuter route in app/router/xs-app.json uses ABMY_INVOICE_REVIEW_S4, the host root; this one already points at the service root, so no `path` is needed). Requires the destination service bound to ai_cap-srv — see mta.yaml. Having credentials here is also what makes invoice-writer's writeTarget() pick 's4'. Scoped to [production] so plain `cds watch` stays on the local mock; the `s4` profile still binds the user-provided service via .cdsrc-private.json.",
+          "credentials": {
+            "destination": "ABMY_INVOICE_REVIEW"
+          }
         }
       },
       "html5-repo": true

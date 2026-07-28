@@ -27,7 +27,11 @@ modules:
     requires:
       - name: ai_cap-auth
       - name: ai_cap-aicore
-      - name: ai_cap-invoice-review
+      # processEmail writes to S/4 through the ABMY_INVOICE_REVIEW subaccount
+      # destination (see cds.requires.ZUI_INVOICE_REVIEW_O4 in package.json).
+      # Without this binding the srv module cannot resolve any destination, the
+      # write target falls back to 'local', and there is no database in CF.
+      - name: ai_cap-destination
 
   - name: ai_cap
     type: approuter.nodejs
@@ -108,16 +112,11 @@ resources:
     type: org.cloudfoundry.existing-service
     parameters:
       service-name: default_aicore
-  # S/4HANA invoice-review OData service (ZUI_INVOICE_REVIEW_O4) — the write
-  # target of processEmail when deployed. Same CF user-provided service the
-  # `s4` profile binds locally (see .cdsrc-private.json). Without this binding
-  # cds.env.requires.ZUI_INVOICE_REVIEW_O4 has no credentials, invoice-writer
-  # falls back to its `local` target, and there is no database in CF to write
-  # to -> "Didn't find a configuration for 'cds.requires.db'".
-  - name: ai_cap-invoice-review
-    type: org.cloudfoundry.existing-service
-    parameters:
-      service-name: ABMY_INVOICE_REVIEW
+  # Bound to BOTH the approuter (UI reads: the /sap route in xs-app.json goes
+  # through the ABMY_INVOICE_REVIEW_S4 destination) and the srv module
+  # (processEmail writes: the ABMY_INVOICE_REVIEW destination). One credential
+  # store for both directions — the CF user-provided service of the same name
+  # is only used locally, by `cds watch --profile s4`.
   - name: ai_cap-destination
     type: org.cloudfoundry.managed-service
     parameters:

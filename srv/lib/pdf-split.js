@@ -10,9 +10,53 @@ const { PDFDocument } = require('pdf-lib');
  * testable with a bare node script.
  */
 
-/** Load a base64 PDF. `ignoreEncryption` so owner-password-protected (but readable) invoices still split. */
+/**
+ * A PDF pdf-lib cannot open, or must not rewrite. Typed so the pipeline can
+ * tell it apart from a genuine bug and fall back to "process the file whole"
+ * instead of losing the attachment.
+ */
+class UnsplittablePdfError extends Error {
+  constructor(message, { encrypted = false } = {}) {
+    super(message);
+    this.name = 'UnsplittablePdfError';
+    this.encrypted = encrypted;
+  }
+}
+
+/**
+ * Does the file declare `/Encrypt`?
+ *
+ * pdf-lib implements **no decryption whatsoever** — `ignoreEncryption: true`
+ * only suppresses its "document is encrypted" guard, after which it parses the
+ * still-ciphertext object streams as if they were PDF syntax. That produces
+ * `Trying to parse invalid object` / `Invalid object ref` noise and then a
+ * baffling `Expected instance of PDFDict, but got instance of undefined` from
+ * deep inside PDFCatalog — an error that says nothing about the real cause.
+ *
+ * Even when such a document happens to parse, copying its encrypted streams
+ * into a new unencrypted PDF yields an attachment that will not render. So an
+ * encrypted PDF is never split: the original bytes are kept intact instead,
+ * which every viewer (and the LLM) reads correctly.
+ *
+ * Content streams are compressed, so a plaintext `/Encrypt` is a reliable
+ * signal rather than an accidental match inside page content.
+ */
+function isEncrypted(base64) {
+  return Buffer.from(base64, 'base64').includes('/Encrypt');
+}
+
+/** Load a base64 PDF, or explain why it cannot be split. */
 async function _load(base64) {
-  return PDFDocument.load(Buffer.from(base64, 'base64'), { ignoreEncryption: true });
+  if (isEncrypted(base64)) {
+    throw new UnsplittablePdfError(
+      'the PDF is encrypted and pdf-lib cannot decrypt it', { encrypted: true });
+  }
+
+  try {
+    return await PDFDocument.load(Buffer.from(base64, 'base64'));
+  } catch (error) {
+    throw new UnsplittablePdfError(`pdf-lib could not parse the PDF: ${error.message}`);
+  }
 }
 
 /** Number of pages in a base64 PDF. Used to fall back to "the whole document is one invoice". */
@@ -27,6 +71,9 @@ async function pageCount(base64) {
  * states. The model is not reliable about bounds, so ranges are clamped to the
  * document and anything still degenerate (start > end, non-numeric) is skipped
  * rather than throwing: one bad range must not lose the other invoices.
+ *
+ * Throws `UnsplittablePdfError` when the document cannot be opened or rewritten
+ * (encrypted, or malformed beyond pdf-lib's tolerance).
  *
  * @param {string} base64 source PDF
  * @param {{startPage:number,endPage:number}[]} ranges
@@ -63,4 +110,4 @@ async function splitPdf(base64, ranges) {
   return out;
 }
 
-module.exports = { splitPdf, pageCount };
+module.exports = { splitPdf, pageCount, isEncrypted, UnsplittablePdfError };

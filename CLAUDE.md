@@ -9,10 +9,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 1. **`DocumentProcessingService`** (`/document-processing-service`) — AI extraction of invoice data from PDFs via LLMs on SAP AI Core:
    - **`processEmail(files, email)` — the primary entry point**: runs the whole pipeline in one call and **persists** the result. See "processEmail pipeline" below.
    - `summarizeEmail(files, email)` — HTML summary + the names of the attachments that contain invoices, returns `SummaryOutput`.
+   - `classifyDocument(fileContent)` — which of the two prompt sets below a file will be routed to, returns `DocumentClassification` (`'invoice'` | `'payment_memo'`). See "Document routing" below.
+
+   **Invoice prompts** (one document, or one page range in it, = one invoice):
    - `getInvoicePages(fileContent)` — identifies page ranges in a (possibly multi-invoice) PDF, returns `many PageRange` (**1-based, inclusive, non-overlapping** — the splitter depends on it).
    - `extractInvoice(invoiceContent, emailContent)` — extracts a structured `InvoiceHeader` (with `lineItems`) from a PDF plus email text.
 
-   The three single-stage actions are stateless and exist for debugging one step at a time; `processEmail` composes them. All PDF/text inputs are `LargeString` (base64 PDF / base64 HTML). Return types are CDS `type`s in `srv/DocumentProcessingService.cds`.
+   **Payment-memo prompts** (one appendix table row = one invoice):
+   - `getMemoPages(fileContent)` — returns `many PageRange`, same contract as `getInvoicePages` but memo-aware (the cover page stays with its appendices).
+   - `extractMemoInvoices(memoContent, emailContent)` — returns **`many InvoiceHeader`**, one per payable row.
+
+   The two sets are **separate actions on the same service, sharing the same `InvoiceHeader`/`PageRange` types** — `invoice-writer.js` persists their output identically and only the prompts differ. They are kept apart because folding memo rules into the invoice prompts makes both worse. The single-stage actions are stateless and exist for debugging one step at a time; `processEmail` composes them. All PDF/text inputs are `LargeString` (base64 PDF / base64 HTML). Return types are CDS `type`s in `srv/DocumentProcessingService.cds`.
 
 2. **`InvoiceReviewService`** (`/invoice-review`) — a persisted, Fiori-facing service backing a **Fiori Elements List Report + Object Page** app (`app/invoicereview/`) for reviewing and verifying extracted invoices. See "Invoice Review app" below.
 
@@ -34,12 +41,52 @@ There is no test runner, linter, or build step configured. `@cap-js/sqlite` (dev
 
 1. **Summarize** — `_summarizeEmail` returns the HTML summary and `invoiceFileNames`.
 2. **Match** — those names are resolved back to the uploaded `files` (case-insensitive basename). Nothing matches → process *all* attachments and warn.
-3. **Page ranges** — `_getInvoicePages` per matched file. Empty or unparseable → fall back to `1..pageCount` (one invoice per document) and warn.
-4. **Split** — `srv/lib/pdf-split.js` (`pdf-lib`) cuts one standalone PDF per range. Ranges are clamped to the document; degenerate ones are skipped rather than throwing.
-5. **Extract** — `_extractInvoice` per split part (`Promise.all` within a file).
-6. **Persist** — `srv/lib/invoice-writer.js` creates `Email` + `Invoice` + `InvoiceItem` + `Attachment` (the split PDF), status `P`.
+3. **Route** — `_classifyFile` per matched file decides which service reads it (see "Document routing"). A classification failure warns and falls through to the invoice path.
+4. **Page ranges** — `_getInvoicePages` (invoice) or `_getMemoPages` (memo) per file. Empty or unparseable → fall back to `1..pageCount` and warn.
+5. **Split** — `srv/lib/pdf-split.js` (`pdf-lib`) cuts one standalone PDF per range. Ranges are clamped to the document; degenerate ones are skipped rather than throwing. A PDF pdf-lib cannot open is processed **whole** instead of being lost — see "Encrypted and signed PDFs" below.
+6. **Extract** — `_processInvoiceFile` → `_extractInvoice` **one invoice per part**; `_processMemoFile` → `_extractMemoInvoices` **many invoices per part** (`Promise.all` within a file either way).
+7. **Persist** — `srv/lib/invoice-writer.js` creates `Email` + `Invoice` + `InvoiceItem` + `Attachment` (the split PDF), status `P`.
 
 **Failures degrade into `warnings`, not errors**: a bad attachment or a failed extraction costs only that file/invoice; the email and everything else still get created. The `ProcessEmailResult` carries `emailUUID`, `target`, `summary`, the per-invoice `startPage/endPage/header`, and `warnings`.
+
+### Encrypted and signed PDFs (`srv/lib/pdf-split.js`)
+
+**`pdf-lib` implements no decryption at all**, and digitally signed invoices are routinely AES-encrypted (`/Filter /Standard`, `/V 4`, `/CFM /AESV2`) — e.g. a Shell invoice signed via *Acrobat Sign Certify Document Service*. `ignoreEncryption: true` does **not** make those readable; it only suppresses pdf-lib's "document is encrypted" guard, after which pdf-lib parses the still-ciphertext object streams as PDF syntax. The result is `Trying to parse invalid object` / `Invalid object ref: 48 0 R` noise followed by `Expected instance of PDFDict, but got instance of undefined` from inside `PDFCatalog.Pages` — an error that names neither encryption nor the file. That option is therefore **not** used.
+
+Instead `_load` checks for `/Encrypt` up front (content streams are compressed, so a plaintext match is reliable) and throws a typed **`UnsplittablePdfError`**. Splitting such a file would be wrong even if it parsed: copying encrypted streams into a new unencrypted PDF yields an attachment that will not render.
+
+`_splitOrWhole` in the service catches that error and **processes the file whole**: the LLM reads encrypted PDFs perfectly well, so the only capability lost is page splitting. The invoice is still extracted and the `Attachment` stores the **original bytes, byte-for-byte** (signature intact, opens in any viewer). A warning records it, and a second warning fires when the model reported more than one range — those invoices cannot be separated and get extracted together. The reported `startPage/endPage` is the span of the model's ranges, since the page count itself is unreadable.
+
+Note `instanceof pdfLib.EncryptedPDFError` is **unreliable** — pdf-lib's ES5-compiled error subclasses lose their prototype chain (`err.name` is plain `'Error'`), which is why encryption is detected directly rather than by catching that class.
+
+## Document routing (`srv/lib/document-classifier.js`)
+
+Two document families need **opposite** reading rules, so rather than one prompt trying to cover both, a cheap classification picks the prompt set up front:
+
+| | reading rule | actions |
+|---|---|---|
+| `invoice` | one document (or one page range in it) = one invoice | `getInvoicePages` + `extractInvoice` |
+| `payment_memo` | one appendix **table row** = one invoice | `getMemoPages` + `extractMemoInvoices` |
+
+**The deciding question is where a payment's detail lives, not whether a covering memo is present.** This is the subtle part, and getting it wrong silently reroutes working documents:
+
+- `srv/Invoice.pdf` (the bundled fallback) is a PNB covering memo naming two payees, **followed by their two real invoices** → `invoice`. The memo is only a transmittal; each attached invoice is read on its own, exactly as before.
+- A scholarship/allowance memo whose payees exist **only as appendix rows**, with no invoice document for any of them → `payment_memo`.
+
+An earlier version of the prompt asked only "how many payees?" and misrouted `srv/Invoice.pdf` to the memo path at 0.9 confidence. The rule is now ordered: *contains a real invoice document → `invoice`; else payees only as table rows → `payment_memo`; else → `invoice`.*
+
+Only the **first `PEEK_PAGES` pages** (default 5, `AICORE_CLASSIFY_PEEK_PAGES`) are sent — the answer hinges on what follows the cover page, and a long schedule shouldn't cost a full read just to be labelled. Too few pages and a multi-page cover hides the invoices behind it. Anything other than the two known labels, or an outright failure, **degrades to `invoice`** — the long-standing path.
+
+### Payment memos (`_getMemoPages` / `_extractMemoInvoices`)
+
+Kept as their own actions precisely so the invoice prompts stay untouched. Their rules, all of which differ from the invoice prompts:
+
+- **Page ranges**: a covering memo and all its appendix pages are **one range**. The cover page is never dropped as a "cover letter" — it carries the reference number, date, GL code, cost centre and currency that the rows never repeat.
+- **Extraction**: one invoice per row across all appendices; GRAND TOTAL / subtotal rows and the cover's own summary table are skipped. Row-level values beat memo-level ones, and a value is never taken from a different row.
+- **Field rules**: `invoiceNumber` = `"<memo reference> - <payeeCode>"` (rows all share the memo's reference, so the bare reference would make them indistinguishable; falls back to `"<ref> - A2-04"`, appendix + row); `payeeCode` accepts an **alphanumeric** scholar/claimant code (`SS102-OS0305`) — the digits-only vendor-code rule is invoice-only; `payeeAccountNumber` takes the account/IBAN, not the sort or SWIFT code; `invoiceDate` = the memo's date, not the due date; `totalAmount` = the row's own total, never a grand total; `glAccount` = the row annotation (`"10102680 - USD6210"` → the leading digit group) falling back to the memo's GL; `costCenter` = the memo's.
+- Every invoice from one memo gets **its own Attachment row holding the same split PDF** — a single row's page is not evidence without the covering memo.
+- `max_tokens` is **32000** (`AICORE_MEMO_MAX_TOKENS`): the answer scales with payee count, and the 8000 default truncates a few dozen rows mid-array into a parse failure.
+- `_normalizeMemoInvoices` accepts `{invoices:[…]}` (what the prompt asks for), a bare array, or a lone object, so one oddly-shaped answer doesn't cost the whole memo.
 
 ### Where it writes (`srv/lib/invoice-writer.js`)
 
@@ -89,7 +136,7 @@ The invoice-review app runs against **either** the local CAP mock (default `cds 
 
 ## Architecture notes
 
-- **LLM access goes through `@sap-ai-sdk/orchestration`'s `OrchestrationClient`** (`_createClient` in `srv/DocumentProcessingService.js`), not the `@sap-ai-sdk/langchain` package listed in `package.json`. The orchestration package is resolved transitively; if you add direct usage, add it to `package.json` explicitly.
+- **LLM access goes through `@sap-ai-sdk/orchestration`'s `OrchestrationClient`** (`srv/lib/ai-client.js`, which both document services share so the model configuration cannot drift; `DocumentProcessingService`'s `_createClient`/`_runPrompt`/`_buildContentItem`/`_parseAIJson` are thin delegates kept for its existing call sites). `ai-client.js` is deliberately **prompt-free** — every prompt lives with the service that owns it. Not the `@sap-ai-sdk/langchain` package listed in `package.json`. The orchestration package is resolved transitively; if you add direct usage, add it to `package.json` explicitly.
 - **Model and resource group are env-configurable**: `AICORE_INVOICE_MODEL` (default `anthropic--claude-4.6-sonnet`) and `AICORE_RESOURCE_GROUP` (default `abmy-project`). These target deployments configured in SAP AI Core, not the public Anthropic API — do not swap in raw `claude-*` model IDs or Anthropic SDK calls.
 - **PDFs are sent as multimodal content items**: `_buildContentItem` wraps base64 PDF bytes as a `type: 'file'` message part (`data:application/pdf;base64,...`). User prompts are arrays mixing this file item with `type: 'text'` instructions.
 - **Prompts demand strict JSON output.** Every response goes through `_parseAIJson`, which strips a markdown fence if present and then `JSON.parse`s — there is no further repair, and a parse failure surfaces as a 500 (single-stage actions) or a warning (inside `processEmail`). The extraction prompt encodes detailed business rules (payee/GL/cost-center/internal-order regexes, line-item summation logic); treat that prompt text as the spec when changing extraction behavior. Its emitted key is `lineItems`, which must keep matching `InvoiceHeader.lineItems` — CAP silently drops the array otherwise.
@@ -99,8 +146,8 @@ The invoice-review app runs against **either** the local CAP mock (default `cds 
 
 ## Layout
 
-- `srv/` — both services (`.cds` model + `.js` implementation), the S/4 external model under `srv/external/`, and bundled sample invoice PDFs.
-- `srv/lib/` — pipeline helpers with no CAP coupling: `pdf-split.js` (page-range splitting via `pdf-lib`) and `invoice-writer.js` (field mapping + the local/S/4 write paths).
+- `srv/` — the services (`.cds` model + `.js` implementation), the S/4 external model under `srv/external/`, and bundled sample invoice PDFs.
+- `srv/lib/` — pipeline helpers with no CAP coupling: `pdf-split.js` (page-range splitting via `pdf-lib`), `invoice-writer.js` (field mapping + the local/S/4 write paths), `ai-client.js` (shared LLM plumbing, no prompts) and `document-classifier.js` (the invoice/payment-memo router).
 - `db/` — `schema.cds` (`abeam.invoicereview`), CSV seed under `db/data/`, `undeploy.json` (HANA undeploy allowlist).
 - `app/` — the `documentprocessing` Fiori Elements app and the approuter config.
 - `test/request.http` — manual HTTP requests against the running service.

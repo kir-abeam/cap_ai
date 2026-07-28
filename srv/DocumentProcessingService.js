@@ -3,8 +3,10 @@ const cds = require('@sap/cds');
 const fs = require('fs');
 const path = require('path');
 
-const { splitPdf, pageCount } = require('./lib/pdf-split');
+const { splitPdf, pageCount, UnsplittablePdfError } = require('./lib/pdf-split');
 const invoiceWriter = require('./lib/invoice-writer');
+const ai = require('./lib/ai-client');
+const { classifyDocument, INVOICE, PAYMENT_MEMO } = require('./lib/document-classifier');
 
 module.exports = class DocumentProcessingService extends cds.ApplicationService {
 
@@ -42,6 +44,18 @@ module.exports = class DocumentProcessingService extends cds.ApplicationService 
             }
         });
 
+        this.on('classifyDocument', async (req) => {
+            const { fileContent } = req.data;
+
+            try {
+                return await classifyDocument(fileContent);
+
+            } catch (error) {
+                console.error('AI generation error:', error);
+                req.error(500, 'Failed to generate AI response: ' + error.message);
+            }
+        });
+
         this.on('getInvoicePages', async (req) => {
             const { fileContent } = req.data;
 
@@ -61,6 +75,30 @@ module.exports = class DocumentProcessingService extends cds.ApplicationService 
             try {
                 const aiResponse = await this._extractInvoice(invoiceContent, emailContent);
                 return this._parseAIJson(aiResponse);
+
+            } catch (error) {
+                console.error('AI generation error:', error);
+                req.error(500, 'Failed to generate AI response: ' + error.message);
+            }
+        });
+
+        this.on('getMemoPages', async (req) => {
+            const { fileContent } = req.data;
+
+            try {
+                return await this._getMemoPages(fileContent);
+
+            } catch (error) {
+                console.error('AI generation error:', error);
+                req.error(500, 'Failed to generate AI response: ' + error.message);
+            }
+        });
+
+        this.on('extractMemoInvoices', async (req) => {
+            const { memoContent, emailContent } = req.data;
+
+            try {
+                return await this._extractMemoInvoices(memoContent, emailContent);
 
             } catch (error) {
                 console.error('AI generation error:', error);
@@ -98,22 +136,15 @@ module.exports = class DocumentProcessingService extends cds.ApplicationService 
         // 2. Resolve those names back to the uploaded files.
         const invoiceFiles = this._matchInvoiceFiles(files, invoiceFileNames, warnings);
 
-        // 3..5. Page ranges -> split -> extract, per file.
+        // 3..5. Route -> page ranges -> split -> extract, per file.
         const processed = [];
         for (const file of invoiceFiles) {
             try {
-                const ranges = await this._resolvePageRanges(file, warnings);
-                const parts = await splitPdf(file.content, ranges);
+                const kind = await this._classifyFile(file, warnings);
 
-                if (!parts.length) {
-                    warnings.push(`No usable page range in '${file.name}' — skipped.`);
-                    continue;
-                }
-
-                const extracted = await Promise.all(parts.map(part =>
-                    this._extractSplitInvoice(file, part, emailHtml, warnings)));
-
-                processed.push(...extracted.filter(Boolean));
+                processed.push(...(kind === PAYMENT_MEMO
+                    ? await this._processMemoFile(file, emailHtml, warnings)
+                    : await this._processInvoiceFile(file, emailHtml, warnings)));
 
             } catch (error) {
                 console.error(`[processEmail] '${file.name}' failed:`, error);
@@ -192,6 +223,166 @@ module.exports = class DocumentProcessingService extends cds.ApplicationService 
         return matched;
     }
 
+    /**
+     * Which service's prompts should read this file. A classification failure is
+     * not fatal: fall through to the invoice path, which is what every file took
+     * before memos existed.
+     */
+    async _classifyFile(file, warnings) {
+        try {
+            const { documentType, confidence, reason } = await classifyDocument(file.content);
+            console.log(`[processEmail] '${file.name}' classified as ${documentType} (${confidence}): ${reason}`);
+            return documentType;
+
+        } catch (error) {
+            warnings.push(`Could not classify '${file.name}' (${error.message}) — read as an ordinary invoice.`);
+            return INVOICE;
+        }
+    }
+
+    /**
+     * Split the file into parts, or — when pdf-lib cannot open it — keep it whole.
+     *
+     * Digitally signed invoices are routinely AES-encrypted, and pdf-lib cannot
+     * decrypt anything. The LLM reads such a PDF perfectly well, so the only
+     * capability actually lost is page splitting: extract from the original
+     * bytes instead of dropping the attachment and its invoice.
+     *
+     * The reported page span comes from the ranges the model gave us, since the
+     * page count itself is unreadable here. More than one range means the file
+     * holds several invoices that cannot be separated — worth saying out loud,
+     * because they will be extracted as one.
+     */
+    async _splitOrWhole(file, ranges, warnings) {
+        try {
+            return await splitPdf(file.content, ranges);
+
+        } catch (error) {
+            if (!(error instanceof UnsplittablePdfError)) throw error;
+
+            warnings.push(`'${file.name}' could not be split (${error.message}) — processed as one document.`);
+
+            if (Array.isArray(ranges) && ranges.length > 1) {
+                warnings.push(`'${file.name}' appears to hold ${ranges.length} invoices but cannot be split — they are extracted together as one.`);
+            }
+
+            return [{ ...this._rangeSpan(ranges), content: file.content }];
+        }
+    }
+
+    /** The outer bounds of a set of ranges, for reporting an unsplit document. */
+    _rangeSpan(ranges) {
+        const starts = [], ends = [];
+        for (const range of ranges || []) {
+            const start = Number(range?.startPage);
+            const end = Number(range?.endPage ?? range?.startPage);
+            if (Number.isFinite(start)) starts.push(Math.trunc(start));
+            if (Number.isFinite(end)) ends.push(Math.trunc(end));
+        }
+
+        return {
+            startPage: starts.length ? Math.max(1, Math.min(...starts)) : 1,
+            endPage: ends.length ? Math.max(...ends) : 1
+        };
+    }
+
+    /** The ordinary path: one document (or one page range within it) is one invoice. */
+    async _processInvoiceFile(file, emailHtml, warnings) {
+        const ranges = await this._resolvePageRanges(file, warnings);
+        const parts = await this._splitOrWhole(file, ranges, warnings);
+
+        if (!parts.length) {
+            warnings.push(`No usable page range in '${file.name}' — skipped.`);
+            return [];
+        }
+
+        const extracted = await Promise.all(parts.map(part =>
+            this._extractSplitInvoice(file, part, emailHtml, warnings)));
+
+        return extracted.filter(Boolean);
+    }
+
+    /**
+     * The payment-memo path, using the memo prompts instead of the invoice ones:
+     * one appendix ROW is one invoice, so a single part yields many. They share
+     * that part's page range and its PDF — a row's own page is not evidence
+     * without the covering memo that carries the reference, GL code and currency.
+     */
+    async _processMemoFile(file, emailHtml, warnings) {
+        const ranges = await this._resolveMemoPages(file, warnings);
+        const parts = await this._splitOrWhole(file, ranges, warnings);
+
+        if (!parts.length) {
+            warnings.push(`No usable page range in memo '${file.name}' — skipped.`);
+            return [];
+        }
+
+        const extracted = await Promise.all(parts.map(async (part) => {
+            const label = `${file.name} p${part.startPage}-${part.endPage}`;
+            try {
+                const headers = await this._extractMemoInvoices(part.content, emailHtml);
+
+                if (!headers.length) {
+                    warnings.push(`No payable row found in memo ${label} — skipped.`);
+                    return [];
+                }
+
+                const attachment = {
+                    fileName: this._splitFileName(file.name, part),
+                    content: part.content
+                };
+
+                return headers.map(header => ({
+                    sourceFile: file.name,
+                    startPage: part.startPage,
+                    endPage: part.endPage,
+                    header,
+                    attachment
+                }));
+
+            } catch (error) {
+                console.error(`[processEmail] memo extraction failed for ${label}:`, error);
+                warnings.push(`Memo extraction failed for ${label}: ${error.message}`);
+                return [];
+            }
+        }));
+
+        return extracted.flat();
+    }
+
+    /** Memo ranges, falling back to "the whole document is one memo". */
+    async _resolveMemoPages(file, warnings) {
+        let ranges;
+        try {
+            ranges = await this._getMemoPages(file.content);
+        } catch (error) {
+            warnings.push(`Could not read memo page ranges for '${file.name}' (${error.message}) — treating it as a single memo.`);
+            ranges = null;
+        }
+
+        if (!Array.isArray(ranges) || !ranges.length) {
+            if (ranges !== null) {
+                warnings.push(`No page range reported for memo '${file.name}' — treating it as a single memo.`);
+            }
+            return [{ startPage: 1, endPage: await this._pageCountOrOne(file) }];
+        }
+        return ranges;
+    }
+
+    /**
+     * Page count for the "whole document is one invoice" fallback. An encrypted
+     * or malformed PDF cannot be counted either; 1 keeps the fallback range
+     * valid, and `_splitOrWhole` then processes the file whole anyway.
+     */
+    async _pageCountOrOne(file) {
+        try {
+            return await pageCount(file.content);
+        } catch (error) {
+            if (!(error instanceof UnsplittablePdfError)) throw error;
+            return 1;
+        }
+    }
+
     /** Page ranges for one file, falling back to "the whole document is one invoice". */
     async _resolvePageRanges(file, warnings) {
         let ranges;
@@ -206,7 +397,7 @@ module.exports = class DocumentProcessingService extends cds.ApplicationService 
             if (ranges !== null) {
                 warnings.push(`No page range reported for '${file.name}' — treating it as a single invoice.`);
             }
-            return [{ startPage: 1, endPage: await pageCount(file.content) }];
+            return [{ startPage: 1, endPage: await this._pageCountOrOne(file) }];
         }
         return ranges;
     }
@@ -251,79 +442,28 @@ module.exports = class DocumentProcessingService extends cds.ApplicationService 
         return Buffer.from(content, 'base64').toString('utf8');
     }
 
+    // The LLM plumbing itself lives in srv/lib/ai-client.js, shared with
+    // srv/lib/document-classifier.js so there is one model configuration rather
+    // than two that can drift. The prompts stay here, in this service.
+
     async _parseAIJson(text) {
-        text = String(text).trim();
-
-        if (text.startsWith("```")) {
-            text = text
-                .replace(/^```json\s*/i, "")
-                .replace(/^```\s*/i, "")
-                .replace(/\s*```$/, "");
-        }
-
-        return JSON.parse(text);
+        return ai.parseAIJson(text);
     }
 
     async _createClient() {
-        const { OrchestrationClient } = require('@sap-ai-sdk/orchestration');
-
-        const MODEL_NAME = process.env.AICORE_INVOICE_MODEL ?? 'anthropic--claude-4.6-sonnet';
-        const RESOURCE_GROUP = process.env.AICORE_RESOURCE_GROUP ?? 'abmy-project';
-
-        return new OrchestrationClient(
-            {
-                promptTemplating: {
-                    model: { name: MODEL_NAME, version: 'latest' },
-                },
-            },
-            { resourceGroup: RESOURCE_GROUP }
-        );
+        return ai.createClient();
     }
 
-    async _runPrompt(client, systemPrompt, userPrompt, { maxTokens = 8000 } = {}) {
-
-        const response = await client.chatCompletion({
-            messages: [
-                {
-                    role: 'system',
-                    content: systemPrompt
-                },
-                {
-                    role: 'user',
-                    content: userPrompt
-                }
-            ],
-
-            // Generous by design: an extraction with several line items, or a
-            // page-range list for a multi-invoice PDF, truncates mid-JSON at a
-            // low ceiling and then fails to parse.
-            max_tokens: maxTokens,
-            temperature: 0.2
-        });
-
-        return response.getContent();
+    async _runPrompt(client, systemPrompt, userPrompt, options) {
+        return ai.runPrompt(client, systemPrompt, userPrompt, options);
     }
 
     async _buildContentItem(fileContent, filename = 'invoice.pdf') {
-
-        return {
-            type: 'file',
-            file: {
-                file_data: `data:application/pdf;base64,${fileContent}`,
-                filename,
-            },
-        };
+        return ai.buildContentItem(fileContent, filename);
     }
 
     async _buildFileItem(files) {
-
-        return files.map((file) => ({
-            type: 'file',
-            file: {
-                file_data: `data:application/pdf;base64,${file.content}`,
-                filename: file.name,
-            },
-        }));
+        return ai.buildFileItem(files);
     }
 
     /**
@@ -581,5 +721,307 @@ module.exports = class DocumentProcessingService extends cds.ApplicationService 
 
         return response;
 
+    }
+
+    // ------------------------------------------------------------------
+    // Payment memos
+    //
+    // The same two stages as above with the opposite reading rule: one appendix
+    // TABLE ROW is one invoice, and the covering memo only supplies the context
+    // the rows do not repeat. Kept as separate prompts — folding these rules
+    // into the invoice prompts above makes both worse.
+    //
+    // The output shape is identical (`InvoiceHeader` with `lineItems`), so
+    // srv/lib/invoice-writer.js persists memo rows and ordinary invoices
+    // through the same mapping.
+    // ------------------------------------------------------------------
+
+    /**
+     * Ranges for a memo. Unlike an invoice PDF, the covering memo page must stay
+     * with its appendices: it carries the reference number, date, GL code, cost
+     * centre and currency that the rows never repeat. So the natural answer here
+     * is usually a single range spanning the whole document.
+     *
+     * @param {string} fileContent base64 PDF
+     * @returns {Promise<Array<{startPage:number,endPage:number}>>}
+     */
+    async _getMemoPages(fileContent) {
+        const userContent = [
+            await this._buildContentItem(fileContent, 'memo.pdf'),
+            {
+                type: 'text',
+                text:
+                    `
+                This PDF contains one or more PAYMENT MEMOS: a covering memo that instructs a
+                payment, together with the appendix / schedule tables listing the individual
+                payees. Identify the page range of each MEMO.
+
+                Rules:
+                - A covering memo AND all of its appendix / schedule pages form ONE SINGLE
+                  RANGE covering the whole set, however many pages that is.
+                - Do NOT emit one range per appendix page.
+                - Do NOT emit one range per table row. The rows are extracted later, from
+                  this single range.
+                - Do NOT leave out the covering memo page. It carries the reference number,
+                  date, GL code, cost centre and currency that the appendix rows rely on.
+                - Start a new range ONLY when a genuinely DIFFERENT memo begins — a new
+                  covering memo with its own reference number. A document containing a
+                  single memo therefore yields exactly ONE range.
+
+                Page numbering rules:
+                - Pages are numbered from 1 (the first page of the PDF is page 1).
+                - Ranges are inclusive: startPage and endPage are both part of the memo.
+                - A single-page memo has startPage equal to endPage.
+                - Ranges must NOT overlap, and must be in ascending page order.
+
+                Output Format (Strict JSON ONLY — No explanation):
+                [
+                    {
+                        "startPage": <number>,
+                        "endPage": <number>
+                    },
+                    ...
+                ]
+                `,
+            },
+        ];
+
+        const client = await this._createClient();
+
+        const response = await this._runPrompt(
+            client,
+            `You are an expert at reading payment memos and disbursement schedules.`,
+            userContent
+        );
+
+        return this._parseAIJson(response);
+    }
+
+    /**
+     * One invoice per payable row.
+     *
+     * @param {string} memoContent  base64 PDF of one memo (cover page + appendices)
+     * @param {string} emailContent the email body as text/HTML, already decoded
+     * @returns {Promise<object[]>} InvoiceHeader-shaped objects
+     */
+    async _extractMemoInvoices(memoContent, emailContent) {
+        const userContent = [
+            await this._buildContentItem(memoContent, 'memo.pdf'),
+            {
+                type: 'text',
+                text:
+                    `
+                You will be given:
+                1. The content of a PAYMENT MEMO PDF file (base64 encoded).
+                2. The content of an email.
+
+                Email content:
+                ${emailContent ?? ''}
+
+                A payment memo is a covering memo / payment instruction / disbursement
+                schedule that instructs payment to MANY payees, with one or more appendix
+                or schedule TABLES listing them.
+
+                -------------------------------------
+                THE CORE RULE: ONE TABLE ROW = ONE INVOICE
+
+                Emit ONE invoice object PER PAYABLE ROW, across ALL appendix tables in the
+                document, in document order. Ten rows spread over four appendices means TEN
+                invoice objects.
+
+                - Never merge rows, and never emit a single combined "grand total" invoice.
+                - Rows that are totals rather than payees ("GRAND TOTAL", subtotal rows, and
+                  the memo's own per-appendix summary table on the covering page) are NOT
+                  invoices. Skip them — use them only to check your arithmetic.
+                - The covering memo page itself is NOT an invoice. It is context.
+
+                -------------------------------------
+                WHERE VALUES COME FROM
+
+                Each invoice draws on two places:
+                - THE ROW    — the appendix table row this invoice is built from.
+                - THE MEMO   — the covering memo page, shared by every row.
+
+                Row-level values ALWAYS win. The memo supplies only what the row lacks.
+                Never take a value from a DIFFERENT row.
+
+                -------------------------------------
+                Output Format (Strict JSON ONLY — No explanation):
+                {
+                    "invoices": [
+                        {
+                            "payeeCode": "",
+                            "payeeName": "",
+                            "payeeAccountNumber": "",
+                            "invoiceNumber": "",
+                            "invoiceDate": "",
+                            "totalAmount": "",
+                            "currency": "",
+                            "taxAmount": "",
+                            "lineItems": [
+                                {
+                                    "amount": "",
+                                    "glAccount": "",
+                                    "costCenter": "",
+                                    "internalOrder": ""
+                                }
+                            ]
+                        }
+                    ]
+                }
+
+                Follow below rules for each field:
+
+                -------------------------------------
+                HEADER FIELDS RULES:
+
+                payeeCode:
+                - The scheme / scholar / staff / claimant code printed on the ROW
+                - It is normally ALPHANUMERIC (e.g. "SS102-OS0305") — accept it as-is,
+                  do not reject it for being non-numeric and do not strip its letters
+                - If the row instead shows a numeric vendor code, use that
+                - If not found → null
+
+                payeeName:
+                - The person or party being paid on this ROW (the student / claimant /
+                  beneficiary)
+                - NOT the organisation issuing the memo, NOT the university, NOT the bank
+                - If not found → null
+
+                payeeAccountNumber:
+                - The ROW's own bank account number
+                - Rows often show several numbers together (sort code / routing / account
+                  number / IBAN / SWIFT). Take the ACCOUNT NUMBER, or the IBAN if given.
+                  Do NOT take the sort/routing code and do NOT take the SWIFT/BIC code.
+                - If not found → null
+
+                invoiceNumber:
+                - Every row shares the memo's reference number, which alone would make the
+                  invoices indistinguishable. So build it as:
+                      "<memo reference> - <payeeCode>"
+                  e.g. "PNB/ED/2025 (411) SP - SS102-OS0305"
+                - The memo reference is the covering memo's "Reference" field
+                - If the row has no payee code, use appendix and row position instead,
+                  e.g. "PNB/ED/2025 (411) SP - A2-04" (appendix 2, row 4)
+                - Keep the whole value at or under 60 characters; if it would be longer,
+                  shorten the memo reference part, never the code part
+                - If no reference exists at all → null
+
+                invoiceDate:
+                - The MEMO's own date (its "Date:" line), the same value for every row
+                - Do NOT use the due date, the "payment by" date, or a received stamp
+                - Convert to ISO format: YYYY-MM-DD
+                - If not found → null
+
+                totalAmount:
+                - The ROW's own total (its "Total" column)
+                - NEVER the appendix grand total and NEVER the memo grand total
+                - Must be numeric (no currency symbols, no thousands separators)
+                - If not found → null
+
+                currency:
+                - Currency code (e.g., MYR, USD, SGD)
+                - Usually stated once, on the memo or in the table column headers
+                  (e.g. "Total (USD)") — apply it to every row
+                - If a symbol is found (e.g., RM), map to ISO code if possible
+                - If not found → null
+
+                taxAmount:
+                - Memo rows rarely carry tax
+                - Numeric only
+                - If the row shows none → null
+
+                -------------------------------------
+                LINE ITEM RULES:
+
+                Each invoice must contain at least one item. Line items are not goods or
+                services — they are the posting details telling Finance which G/L account,
+                cost center and internal order to post to.
+
+                - EXTRACTION LOGIC (STRICT ORDER):
+
+                1. DEFAULT: a row is a SINGLE-line posting.
+                - Emit ONE item with item.amount = the row's totalAmount
+
+                2. SPLIT into several items ONLY when the row's amount columns are posted
+                   to DIFFERENT G/L accounts (e.g. a subsistence allowance column and a
+                   book allowance column annotated with different GLs):
+                - One item per NON-ZERO column
+                - The items MUST sum to the row's totalAmount
+
+                3. Ignore zero-value columns entirely — they are not line items.
+
+                - Always ensure:
+                sum(item.amount) == totalAmount
+
+                glAccount:
+                - Must contain ONLY digits
+                - Prefer the GL annotated on the ROW. It is often written beside the row as
+                  "<gl> - <currency><amount>", e.g. "10102680 - USD6210" — the G/L account
+                  is the LEADING DIGIT GROUP, NOT the amount that follows it.
+                - Fall back to the memo's GL code (e.g. "GL Code: 50008100") only when the
+                  row carries none
+                - May appear as "GL" or "G/L Account"
+                - If not found → null
+
+                costCenter:
+                - Must match regex: \\d{3}-\\d{5}
+                - Example: "102-05003" or "108-02600"
+                - Normally stated ONCE on the covering memo (e.g. "CC: 102-06010") and
+                  applies to every row
+                - May appear as "CC" or "Cost Center"
+                - If not found → null
+
+                internalOrder:
+                - Must match regex: [A-Z]{3}\\d{3}-\\d{3}
+                - Example: "PTR121-115" or "PTR121-102"
+                - May appear as "IO" or "Internal Order"
+                - A scholar / claimant code such as "SS102-OS0305" is NOT an internal
+                  order — it does not match the regex and belongs in payeeCode
+                - If not found → null
+
+                -------------------------------------
+                IMPORTANT CONSTRAINTS:
+
+                Return ONLY a valid JSON object with the single key "invoices".
+                Do NOT wrap the response in markdown.
+                Do NOT include any explanation, notes, or extra text.
+                The first character must be { and the last character must be }.
+                Emit EVERY payable row — do not truncate the list, do not summarise it,
+                and do not write "..." or a comment in place of the remaining rows.
+                `,
+            },
+        ];
+
+        const client = await this._createClient();
+
+        // The answer scales with the number of payees, not the number of pages:
+        // a few dozen rows truncate mid-array at the 8000 default and then fail
+        // to parse.
+        const maxTokens = Number(process.env.AICORE_MEMO_MAX_TOKENS) || 32000;
+
+        const response = await this._runPrompt(
+            client,
+            `You are an AI assistant specialized in reading payment memos and disbursement schedules. `
+            + `Every payable row of the appendix tables is a separate invoice.`,
+            userContent,
+            { maxTokens }
+        );
+
+        return this._normalizeMemoInvoices(await this._parseAIJson(response));
+    }
+
+    /**
+     * Normalize the memo extraction response into a list of headers. The prompt
+     * is told to answer `{ invoices: [...] }`; a bare array or a lone object
+     * still reads correctly, which keeps one odd answer from costing the whole memo.
+     */
+    _normalizeMemoInvoices(parsed) {
+        const list = Array.isArray(parsed) ? parsed
+            : Array.isArray(parsed?.invoices) ? parsed.invoices
+                : parsed ? [parsed]
+                    : [];
+
+        return list.filter(header => header && typeof header === 'object');
     }
 };

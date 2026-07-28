@@ -8,6 +8,12 @@ const path = require('path');
 // files into any Attachment whose Content is still empty. Idempotent.
 // ------------------------------------------------------------------
 cds.once('served', async () => {
+  // No database at all when deployed (the review app reads S/4 directly there).
+  // Connecting anyway fails at boot AND poisons cds.connect.to('db') for every
+  // later caller — CAP caches the rejected promise together with this stack,
+  // which is how a processEmail failure ends up reported from this line.
+  if (!cds.env.requires?.db) return;
+
   try {
     const db = await cds.connect.to('db');
     const { Attachment } = db.entities('abeam.invoicereview');
