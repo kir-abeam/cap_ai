@@ -99,6 +99,18 @@ Kept as their own actions precisely so the invoice prompts stay untouched. Their
 
 **Every S/4 request must set `content-type: application/json` explicitly** (`_send` in `invoice-writer.js` does). CAP's remote client only adds that header when `requestConfig.data` is a plain object (`libx/_runtime/remote/utils/query.js`); otherwise the POST reaches Gateway with no content type, Gateway falls back to XML/Atom parsing and answers **400 "Error while parsing an XML stream"** — an error about *our request body*, not about any XML response. Caller-supplied headers are merged last by `_getHeaders`, so they win. `accept: application/json` is set for the same reason: it keeps error bodies in the shape CAP's client reads (`error.message.value`), so failures surface with S/4's real text instead of a generic one. RAP is also free to assign its own keys, so `_writeS4` continues from the key S/4 echoes back rather than the generated one.
 
+### Email instructions override the document
+
+Both extraction prompts (`_extractInvoice` and `_extractMemoInvoices`) treat a **directive in the email body as the highest-precedence source**, above anything printed on the PDF — because the sender routinely tells Finance how to post: *"please use vendor code 20345 for both invoices"*, *"please use GL account 12345"*. The instructed value wins even when the document carries none (a PDF with no vendor code still gets `payeeCode` from the email), and a line-item directive applies to **every** line item. For memos the precedence is **email > row > memo**, layered on top of the existing row-beats-memo rule.
+
+Three guards keep this from firing on ordinary prose, and all three are worth preserving when editing the prompts:
+
+- **Only genuine directives** (*"use …"*, *"post to …"*, *"charge to …"*). A value mentioned in passing — *"our invoice 12345 is attached"*, *"as per PO 9912"* — changes nothing.
+- **Scope.** `_extractInvoice` sees one split invoice but the whole email. A generally-worded instruction (*"both invoices"*, *"all"*) applies; one naming a different invoice or vendor is ignored. Verified: *"…for the Shell invoice only"* correctly left the People Potential invoice untouched, and an email naming both vendors gave each its own code.
+- **Never invent.** No instruction for a field → extract it from the PDF exactly as the field rules say.
+
+`sum(lineItems.amount) == totalAmount` still has to hold if an instruction changes amounts.
+
 ### Field mapping and the base64 convention
 
 Extraction is camelCase, persistence is PascalCase and identical on both backends: `invoiceNumber→DocumentNumber`, `invoiceDate→DocumentDate`, `payee*→Vendor*`, `lineItems→_Item`. Values pass through `str(max)/num/isoDate` coercers — the prompt returns `""` for "not found" (must become `null`), amounts like `"RM292,680.00"`, and unbounded strings that would blow S/4's `MaxLength`.

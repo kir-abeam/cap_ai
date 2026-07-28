@@ -75,6 +75,51 @@ modules:
           config:
             HTML5Runtime_enabled: true
 
+  # Makes the uploaded HTML5 app DISCOVERABLE by SAP Build Work Zone.
+  #
+  # The app-deployer above only uploads the app into the app-host repo — that is
+  # enough to serve it through our own approuter, but Work Zone's Content Manager
+  # does not look inside app-host instances. It finds apps through *destinations*
+  # carrying `sap.cloud.service` + `html5-apps-repo.app_host_id`, which is what
+  # this module creates. Without it `cf html5-list -d` does not list the app and
+  # Content Manager has nothing to add.
+  #
+  # The two destinations are the pair Work Zone expects: `*_html_repo_host` tells
+  # it which app-host holds the content, `*_uaa` how to get a user token for it.
+  - name: ai_cap-destination-content
+    type: com.sap.application.content
+    build-parameters:
+      no-source: true
+    requires:
+      - name: ai_cap-destination
+        parameters:
+          content-target: true
+      - name: ai_cap-html5-repo-host
+        parameters:
+          service-key:
+            name: ai_cap-html5-repo-host-key
+      - name: ai_cap-auth
+        parameters:
+          service-key:
+            name: ai_cap-auth-key
+    parameters:
+      content:
+        instance:
+          # `ignore` so a redeploy never clobbers destinations that already exist
+          # in the subaccount (e.g. the hand-created ABMY_INVOICE_REVIEW_S4 one
+          # that xs-app.json routes through).
+          existing_destinations_policy: ignore
+          destinations:
+            - Name: ai_cap_invoicereview_html_repo_host
+              ServiceInstanceName: ai_cap-html5-repo-host
+              ServiceKeyName: ai_cap-html5-repo-host-key
+              sap.cloud.service: abeam.invoicereview
+            - Name: ai_cap_invoicereview_uaa
+              Authentication: OAuth2UserTokenExchange
+              ServiceInstanceName: ai_cap-auth
+              ServiceKeyName: ai_cap-auth-key
+              sap.cloud.service: abeam.invoicereview
+
   - name: ai_capdocumentprocessing
     type: html5
     path: app/documentprocessing
@@ -122,6 +167,10 @@ resources:
     parameters:
       service: destination
       service-plan: lite
+      # Required for the destinations created by ai_cap-destination-content to be
+      # usable as an HTML5 app source (Work Zone / html5-apps-repo runtime).
+      config:
+        HTML5Runtime_enabled: true
 
   - name: ai_cap-html5-repo-host
     type: org.cloudfoundry.managed-service

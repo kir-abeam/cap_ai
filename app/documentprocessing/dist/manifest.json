@@ -38,6 +38,19 @@
 					"localUri": "annotations/annotations.xml"
 				}
 			}
+		},
+		"crossNavigation": {
+			"inbounds": {
+				"documentProcessing-display": {
+					"semanticObject": "documentProcessing",
+					"action": "display",
+					"title": "{{documentProcessing-display.flpTitle}}",
+					"signature": {
+						"parameters": {},
+						"additionalParameters": "allowed"
+					}
+				}
+			}
 		}
 	},
 	"sap.ui": {
@@ -258,5 +271,9 @@
 		"app": {
 			"enableLazyLoading": true
 		}
+	},
+	"sap.cloud": {
+		"public": true,
+		"service": "abeam.invoicereview"
 	}
 }

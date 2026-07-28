@@ -494,6 +494,7 @@ module.exports = class DocumentProcessingService extends cds.ApplicationService 
                 text:
                     `
                 Based on the email and PDF file, please summarize the intent of the message and then output it into a nice HTML format.
+                The summary should be concise for AP executive to read. 
                 The HTML must only use standard SAP Fiori fonts and colors.
                 After summarization, list all the PDF files which contains invoices.
                 Use the exact file names as given above.
@@ -590,6 +591,54 @@ module.exports = class DocumentProcessingService extends cds.ApplicationService 
 
                 Your task is to extract structured invoice data using the provided information as reference.
 
+                -------------------------------------
+                EMAIL INSTRUCTIONS OVERRIDE THE DOCUMENT (HIGHEST PRECEDENCE)
+
+                The sender often tells Finance how the invoice must be recorded. Such an
+                instruction BEATS whatever the PDF says, for the field it names. Examples:
+
+                - "please use vendor code 20345 for both invoices"
+                      -> payeeCode = "20345", even if the PDF shows a different code,
+                         and even if the PDF shows no code at all
+                - "please use GL account 12345"
+                      -> EVERY line item gets glAccount = "12345"
+                - "kindly post this to cost center 102-05003"
+                      -> EVERY line item gets costCenter = "102-05003"
+
+                How to apply them:
+
+                1. Only act on a genuine DIRECTIVE about how to record the payment —
+                   "use ...", "please use ...", "post to ...", "charge to ...",
+                   "should be ...", "to be booked under ...". A value merely mentioned
+                   in passing is NOT an instruction: "our invoice 12345 is attached",
+                   "as per PO 9912", "refer to our quotation 555" change nothing.
+
+                2. Scope it correctly. This PDF is ONE invoice, but the email may cover
+                   several attachments:
+                   - Phrased generally ("both invoices", "all invoices", "these
+                     invoices", "the attached") -> applies to this invoice.
+                   - Tied to a specific invoice or vendor ("for the Shell invoice ...",
+                     "for ZICO please use ...") -> apply ONLY if that is the invoice in
+                     THIS PDF. If it names a different one, IGNORE it entirely.
+
+                3. An instruction about a line-item field (glAccount, costCenter,
+                   internalOrder) applies to EVERY line item — unless the email itself
+                   breaks it down per item or per amount.
+
+                4. Take the VALUE, not the wording: "GL account 12345" -> "12345";
+                   "vendor code is 20345" -> "20345"; "CC 102-05003" -> "102-05003".
+
+                5. The per-field rules below still describe the shape of each value.
+                   Where an instructed value conflicts with them, keep the instructed
+                   value but strip any surrounding label, quotes or punctuation.
+
+                6. Say nothing, change nothing: if the email gives no instruction for a
+                   field, extract that field from the PDF exactly as the rules below
+                   describe. NEVER invent an instruction that is not there.
+
+                7. If an instruction changes amounts, sum(lineItems.amount) must still
+                   equal totalAmount.
+
                 Output Format (Strict JSON ONLY — No explanation):
                 {
                     "payeeCode": "",
@@ -617,6 +666,8 @@ module.exports = class DocumentProcessingService extends cds.ApplicationService 
 
                 payeeCode:
                 - Vendor code
+                - A vendor code stated in the email OVERRIDES the document, including
+                  when the document has none
                 - Must contain ONLY digits (0-9)
                 - May appear as:
                 - "Vendor Code"
@@ -683,20 +734,29 @@ module.exports = class DocumentProcessingService extends cds.ApplicationService 
                 - Always ensure:
                 sum(item.amount) == totalAmount  (ONLY when multiple items exist)
 
+                A posting value stated in the email OVERRIDES the document for EVERY
+                line item — see EMAIL INSTRUCTIONS above.
+
                 glAccount:
                 - Must contain ONLY digits
+                - A G/L account stated in the email wins over the document, and applies
+                  to every line item
                 - May appear as "GL" or "G/L Account"
                 - If not found → null
 
                 costCenter:
                 - Must match regex: \\d{3}-\\d{5}
                 - Example: "102-05003" or "108-02600"
+                - A cost center stated in the email wins over the document, and applies
+                  to every line item
                 - May appear as "CC"  or "Cost Center"
                 - If not found → null
 
                 internalOrder:
                 - Must match regex: [A-Z]{3}\\d{3}-\\d{3}
                 - Example: "PTR121-115" or "PTR121-102"
+                - An internal order stated in the email wins over the document, and
+                  applies to every line item
                 - May appear as "IO" or "Internal Order"
                 - If not found → null
 
@@ -838,12 +898,33 @@ module.exports = class DocumentProcessingService extends cds.ApplicationService 
                 -------------------------------------
                 WHERE VALUES COME FROM
 
-                Each invoice draws on two places:
-                - THE ROW    — the appendix table row this invoice is built from.
-                - THE MEMO   — the covering memo page, shared by every row.
+                Each invoice draws on three places, in this order of precedence:
 
-                Row-level values ALWAYS win. The memo supplies only what the row lacks.
-                Never take a value from a DIFFERENT row.
+                1. THE EMAIL — an instruction from the sender about how to record the
+                   payment. HIGHEST precedence: it beats both the row and the memo.
+                2. THE ROW   — the appendix table row this invoice is built from.
+                3. THE MEMO  — the covering memo page, shared by every row.
+
+                Between the row and the memo, the ROW always wins; the memo supplies only
+                what the row lacks. Never take a value from a DIFFERENT row.
+
+                EMAIL INSTRUCTIONS, in detail:
+
+                The sender may tell Finance how the memo must be posted, e.g.
+                "please use GL account 12345" -> EVERY line item of EVERY row gets
+                glAccount = "12345", overriding both the row annotation and the memo's
+                own GL code. Likewise for cost center, internal order or vendor code.
+
+                - Only act on a genuine DIRECTIVE ("use ...", "please use ...",
+                  "post to ...", "charge to ...", "should be ..."). A value merely
+                  mentioned in passing is NOT an instruction.
+                - An instruction phrased generally ("all payees", "every row", "this
+                  memo", "the attached") applies to EVERY invoice extracted here.
+                - An instruction naming ONE payee, scholar code or appendix applies ONLY
+                  to that row; every other row keeps its own value.
+                - Take the VALUE, not the wording: "GL account 12345" -> "12345".
+                - If the email says nothing about a field, use the row/memo rules below
+                  exactly as written. NEVER invent an instruction that is not there.
 
                 -------------------------------------
                 Output Format (Strict JSON ONLY — No explanation):
