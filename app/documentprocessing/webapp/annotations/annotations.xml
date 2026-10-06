@@ -97,6 +97,7 @@
             <Record Type="UI.DataField"><PropertyValue Property="Value" Path="TotalAmount"/><PropertyValue Property="Label" String="Total Amount"/></Record>
             <Record Type="UI.DataField"><PropertyValue Property="Value" Path="Currency"/><PropertyValue Property="Label" String="Currency"/></Record>
             <Record Type="UI.DataField"><PropertyValue Property="Value" Path="VerificationStatus"/><PropertyValue Property="Label" String="Verification Status"/></Record>
+            <Record Type="UI.DataField"><PropertyValue Property="Value" Path="AccountingDocument"/><PropertyValue Property="Label" String="Accounting Document"/></Record>
           </Collection>
         </Annotation>
 
@@ -106,6 +107,11 @@
               <PropertyValue Property="ID" String="HeaderFacet"/>
               <PropertyValue Property="Label" String="Invoice Header"/>
               <PropertyValue Property="Target" AnnotationPath="@UI.FieldGroup#Header"/>
+            </Record>
+            <Record Type="UI.ReferenceFacet">
+              <PropertyValue Property="ID" String="PostingFacet"/>
+              <PropertyValue Property="Label" String="Posting"/>
+              <PropertyValue Property="Target" AnnotationPath="@UI.FieldGroup#Posting"/>
             </Record>
             <Record Type="UI.ReferenceFacet">
               <PropertyValue Property="ID" String="ItemsFacet"/>
@@ -132,12 +138,78 @@
             </PropertyValue>
           </Record>
         </Annotation>
+
+        <!-- FI posting (InvoicePostingService). Mirrors FieldGroup#Posting in annotations.cds. -->
+        <Annotation Term="UI.FieldGroup" Qualifier="Posting">
+          <Record>
+            <PropertyValue Property="Data">
+              <Collection>
+                <Record Type="UI.DataField"><PropertyValue Property="Value" Path="CompanyCode"/><PropertyValue Property="Label" String="Company Code"/></Record>
+                <Record Type="UI.DataField"><PropertyValue Property="Value" Path="PostingDate"/><PropertyValue Property="Label" String="Posting Date"/></Record>
+                <Record Type="UI.DataField"><PropertyValue Property="Value" Path="TaxCode"/><PropertyValue Property="Label" String="Tax Code"/></Record>
+                <Record Type="UI.DataField"><PropertyValue Property="Value" Path="AccountingDocument"/><PropertyValue Property="Label" String="Accounting Document"/></Record>
+                <Record Type="UI.DataField"><PropertyValue Property="Value" Path="FiscalYear"/><PropertyValue Property="Label" String="Fiscal Year"/></Record>
+                <Record Type="UI.DataField"><PropertyValue Property="Value" Path="PostingMessage"/><PropertyValue Property="Label" String="Posting Message"/></Record>
+              </Collection>
+            </PropertyValue>
+          </Record>
+        </Annotation>
       </Annotations>
+
+      <!-- ========================= Field labels ========================= -->
+      <!-- S/4 ships no Common.Label, so without these the filter bar, Adapt
+           Filters/Columns, value helps and messages fall back to the technical
+           property names. DataField labels above only cover tables and forms. -->
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.EmailType/EmailUUID"><Annotation Term="Common.Label" String="Email ID"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.EmailType/EmailSubject"><Annotation Term="Common.Label" String="Email Subject"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.EmailType/EmailSentDate"><Annotation Term="Common.Label" String="Email Sent Date"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.EmailType/EmailSender"><Annotation Term="Common.Label" String="Email Sender"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.EmailType/EmailBodyHtml"><Annotation Term="Common.Label" String="Email Body"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.EmailType/Summary"><Annotation Term="Common.Label" String="AI Summary"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.EmailType/CreatedBy"><Annotation Term="Common.Label" String="Created By"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.EmailType/CreatedAt"><Annotation Term="Common.Label" String="Created On"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.EmailType/LastChangedBy"><Annotation Term="Common.Label" String="Last Changed By"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.EmailType/LastChangedAt"><Annotation Term="Common.Label" String="Last Changed On"/></Annotations>
+
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceType/InvoiceUUID"><Annotation Term="Common.Label" String="Invoice ID"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceType/EmailUUID"><Annotation Term="Common.Label" String="Email ID"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceType/DocumentNumber"><Annotation Term="Common.Label" String="Document Number"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceType/DocumentDate"><Annotation Term="Common.Label" String="Document Date"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceType/TotalAmount"><Annotation Term="Common.Label" String="Total Amount"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceType/Currency"><Annotation Term="Common.Label" String="Currency"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceType/TaxAmount"><Annotation Term="Common.Label" String="Tax Amount"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceType/VendorCode"><Annotation Term="Common.Label" String="Vendor Code"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceType/VendorName"><Annotation Term="Common.Label" String="Vendor Name"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceType/VendorAccountNumber"><Annotation Term="Common.Label" String="Vendor Account Number"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceType/CompanyCode"><Annotation Term="Common.Label" String="Company Code"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceType/PostingDate"><Annotation Term="Common.Label" String="Posting Date"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceType/TaxCode"><Annotation Term="Common.Label" String="Tax Code"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceType/CreatedBy"><Annotation Term="Common.Label" String="Created By"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceType/CreatedAt"><Annotation Term="Common.Label" String="Created On"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceType/LastChangedBy"><Annotation Term="Common.Label" String="Last Changed By"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceType/LastChangedAt"><Annotation Term="Common.Label" String="Last Changed On"/></Annotations>
+
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceItemType/ItemUUID"><Annotation Term="Common.Label" String="Item ID"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceItemType/InvoiceUUID"><Annotation Term="Common.Label" String="Invoice ID"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceItemType/EmailUUID"><Annotation Term="Common.Label" String="Email ID"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceItemType/Amount"><Annotation Term="Common.Label" String="Amount"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceItemType/GLAccount"><Annotation Term="Common.Label" String="GL Account"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceItemType/CostCenter"><Annotation Term="Common.Label" String="Cost Center"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceItemType/InternalOrder"><Annotation Term="Common.Label" String="Internal Order"/></Annotations>
+
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.AttachmentType/AttachmentUUID"><Annotation Term="Common.Label" String="Attachment ID"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.AttachmentType/InvoiceUUID"><Annotation Term="Common.Label" String="Invoice ID"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.AttachmentType/EmailUUID"><Annotation Term="Common.Label" String="Email ID"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.AttachmentType/FileName"><Annotation Term="Common.Label" String="File Name"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.AttachmentType/MediaType"><Annotation Term="Common.Label" String="Media Type"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.AttachmentType/Content"><Annotation Term="Common.Label" String="Content"/></Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.AttachmentType/FileSize"><Annotation Term="Common.Label" String="File Size"/></Annotations>
 
       <!-- Show the P/V/R code as a label everywhere the field appears (invoices
            table + invoice header). S/4 exposes no text field, so map the code to
            text with a conditional expression and show text only. -->
       <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceType/VerificationStatus">
+        <Annotation Term="Common.Label" String="Verification Status"/>
         <Annotation Term="Common.Text">
           <If>
             <Eq><Path>VerificationStatus</Path><String>V</String></Eq>
@@ -153,6 +225,21 @@
         <!-- Never typed directly: changed only via the Verify/Reject actions.
              Read-only even in edit mode (a UI hint; the Verify/Reject draft PATCH
              still writes it). EDMX keeps a static field control (unlike CAP). -->
+        <Annotation Term="Common.FieldControl" EnumMember="Common.FieldControlType/ReadOnly"/>
+      </Annotations>
+
+      <!-- Posting results: written only by InvoicePostingService, never typed
+           (mirrors @readonly in srv/invoice-review-service.cds). -->
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceType/AccountingDocument">
+        <Annotation Term="Common.Label" String="Accounting Document"/>
+        <Annotation Term="Common.FieldControl" EnumMember="Common.FieldControlType/ReadOnly"/>
+      </Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceType/FiscalYear">
+        <Annotation Term="Common.Label" String="Fiscal Year"/>
+        <Annotation Term="Common.FieldControl" EnumMember="Common.FieldControlType/ReadOnly"/>
+      </Annotations>
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceType/PostingMessage">
+        <Annotation Term="Common.Label" String="Posting Message"/>
         <Annotation Term="Common.FieldControl" EnumMember="Common.FieldControlType/ReadOnly"/>
       </Annotations>
 

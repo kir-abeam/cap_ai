@@ -1,0 +1,33 @@
+@baseUrl = http://localhost:4004/odata/v4/invoice-posting
+
+# Verify = post. verifyInvoice posts a Pending invoice to S/4 as an FI vendor
+# invoice (KR) and marks it Verified only if S/4 accepts it; on any error it
+# stays Pending. Plain `cds watch` = local mock: nothing reaches S/4, a fake
+# document number is written. `npm run s4` = real SOAP call.
+
+### Success — seed invoice 25016078 is Pending and its item sums to the total
+POST {{baseUrl}}/verifyInvoice
+Content-Type: application/json
+
+{ "invoiceUUID": "11111111-1111-1111-1111-111111111111" }
+
+### Same invoice again — 409, already posted (run after the request above)
+POST {{baseUrl}}/verifyInvoice
+Content-Type: application/json
+
+{ "invoiceUUID": "11111111-1111-1111-1111-111111111111" }
+
+### Items don't sum to the total — 400, stays Pending (25016079: item 45000, total 48500)
+POST {{baseUrl}}/verifyInvoice
+Content-Type: application/json
+
+{ "invoiceUUID": "11111111-1111-1111-1111-111111111112" }
+
+### Rejected invoice — 400
+POST {{baseUrl}}/verifyInvoice
+Content-Type: application/json
+
+{ "invoiceUUID": "44444444-4444-4444-4444-444444444444" }
+
+### Check the result (local target)
+GET http://localhost:4004/invoice-review/Invoice?$select=DocumentNumber,VerificationStatus,AccountingDocument,FiscalYear,PostingMessage

@@ -32,7 +32,15 @@ entity Invoice {
       VendorName          : String(255);
       VendorAccountNumber : String(60);
       VerificationStatus  : String(1) default 'P';   // P Pending / V Verified / R Rejected
-      _Email              : Association to Email on _Email.EmailUUID = EmailUUID;
+      // FI posting (InvoicePostingService). The first three are inputs to the
+      // Journal Entry, the last three its result — empty AccountingDocument = not posted.
+      CompanyCode         : String(4);
+      PostingDate         : Date;
+      TaxCode             : String(2);
+      AccountingDocument  : String(10);
+      FiscalYear          : String(4);
+      PostingMessage      : String(255);
+      _Email             : Association to Email on _Email.EmailUUID = EmailUUID;
       _Item               : Composition of many InvoiceItem on _Item.InvoiceUUID = InvoiceUUID;
       _Attachment         : Composition of many Attachment  on _Attachment.InvoiceUUID = InvoiceUUID;
 }

@@ -57,13 +57,28 @@ annotate InvoiceReviewService.Invoice with @(
     { $Type: 'UI.DataField', Value: VendorName,         Label: 'Vendor Name' },
     { $Type: 'UI.DataField', Value: TotalAmount,        Label: 'Total Amount' },
     { $Type: 'UI.DataField', Value: Currency,           Label: 'Currency' },
-    { $Type: 'UI.DataField', Value: VerificationStatus, Label: 'Verification Status' }
+    { $Type: 'UI.DataField', Value: VerificationStatus, Label: 'Verification Status' },
+    { $Type: 'UI.DataField', Value: AccountingDocument, Label: 'Accounting Document' }
   ],
 
   UI.Facets : [
-    { $Type: 'UI.ReferenceFacet', ID: 'HeaderFacet', Label: 'Invoice Header', Target: '@UI.FieldGroup#Header' },
-    { $Type: 'UI.ReferenceFacet', ID: 'ItemsFacet',  Label: 'Line Items',     Target: '_Item/@UI.LineItem' }
+    { $Type: 'UI.ReferenceFacet', ID: 'HeaderFacet',  Label: 'Invoice Header', Target: '@UI.FieldGroup#Header' },
+    { $Type: 'UI.ReferenceFacet', ID: 'PostingFacet', Label: 'Posting',        Target: '@UI.FieldGroup#Posting' },
+    { $Type: 'UI.ReferenceFacet', ID: 'ItemsFacet',   Label: 'Line Items',     Target: '_Item/@UI.LineItem' }
   ],
+
+  // Inputs (editable while Pending, with the rest of the invoice) + the result
+  // of InvoicePostingService.verifyInvoice (read-only, see @readonly in the service).
+  UI.FieldGroup #Posting : {
+    Data : [
+      { $Type: 'UI.DataField', Value: CompanyCode,        Label: 'Company Code' },
+      { $Type: 'UI.DataField', Value: PostingDate,        Label: 'Posting Date' },
+      { $Type: 'UI.DataField', Value: TaxCode,            Label: 'Tax Code' },
+      { $Type: 'UI.DataField', Value: AccountingDocument, Label: 'Accounting Document' },
+      { $Type: 'UI.DataField', Value: FiscalYear,         Label: 'Fiscal Year' },
+      { $Type: 'UI.DataField', Value: PostingMessage,     Label: 'Posting Message' }
+    ]
+  },
 
   // Lock the whole invoice once it is Verified/Rejected: FE renders every field
   // (header + line items) read-only when IsEditable is false. Record form is

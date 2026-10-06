@@ -15,6 +15,10 @@ service InvoiceReviewService @(path: '/invoice-review') {
 
   entity Invoice     as projection on ir.Invoice {
     *,
+    // Written only by InvoicePostingService (directly on the table), never by the UI.
+    @readonly AccountingDocument,
+    @readonly FiscalYear,
+    @readonly PostingMessage,
     // On-read lock flag: an invoice is editable only while Pending. Drives
     // @Capabilities.UpdateRestrictions.Updatable so a Verified/Rejected invoice
     // renders fully read-only (all header fields + line items), even inside the

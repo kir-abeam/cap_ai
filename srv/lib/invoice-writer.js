@@ -259,7 +259,7 @@ async function _send(srv, method, path, data) {
     return await srv.send({
       method,
       path,
-      data: compact(data),
+      data: data === undefined ? undefined : compact(data),
       headers: {
         'content-type': 'application/json',
         accept: 'application/json'
@@ -348,4 +348,65 @@ async function createEmailWithInvoices({ email, summary, invoices }) {
   };
 }
 
-module.exports = { createEmailWithInvoices, writeTarget, str, num, isoDate, timestamp };
+// -------------------------------------------------------------------------
+// Single-invoice read / update, used by InvoicePostingService. Same backend
+// switch as the create path.
+// -------------------------------------------------------------------------
+
+/** One active invoice with its line items (`_Item`), or null when it does not exist. */
+async function readInvoice(invoiceUUID) {
+  if (writeTarget() === 's4') {
+    const srv = await cds.connect.to(REMOTE);
+    try {
+      return await _send(srv, 'GET', `Invoice(InvoiceUUID=${invoiceUUID},IsActiveEntity=true)?$expand=_Item`);
+    } catch (err) {
+      if (/\(404\)/.test(err.message)) return null;
+      throw err;
+    }
+  }
+
+  const db = await cds.connect.to('db');
+  const { Invoice, InvoiceItem } = db.entities('abeam.invoicereview');
+  const invoice = await db.run(SELECT.one.from(Invoice).where({ InvoiceUUID: invoiceUUID }));
+  if (!invoice) return null;
+  invoice._Item = await db.run(SELECT.from(InvoiceItem).where({ InvoiceUUID: invoiceUUID }));
+  return invoice;
+}
+
+/**
+ * Write a few header fields onto an active invoice.
+ *
+ * local: a plain UPDATE of the active row. s4: the active instance is not
+ * writable, so Edit the owning Email (PreserveChanges=false), PATCH the invoice
+ * draft node, Activate — the same flow VerificationHandler.js drives from the
+ * browser. Any failure after Edit discards the draft so the email is not left
+ * locked.
+ */
+async function updateInvoice({ emailUUID, invoiceUUID }, patch) {
+  if (writeTarget() !== 's4') {
+    const db = await cds.connect.to('db');
+    const { Invoice } = db.entities('abeam.invoicereview');
+    await db.run(UPDATE(Invoice).set(patch).where({ InvoiceUUID: invoiceUUID }));
+    return;
+  }
+
+  const srv = await cds.connect.to(REMOTE);
+  await _send(srv, 'POST', `Email(EmailUUID=${emailUUID},IsActiveEntity=true)/${S4_NS}.Edit`,
+    { PreserveChanges: false });
+  const emailPath = draftKey('Email', 'EmailUUID', emailUUID);
+  try {
+    await _send(srv, 'PATCH', draftKey('Invoice', 'InvoiceUUID', invoiceUUID), patch);
+    await _send(srv, 'POST', `${emailPath}/${S4_NS}.Activate`, {});
+  } catch (err) {
+    try {
+      await _send(srv, 'POST', `${emailPath}/${S4_NS}.Discard`, {});
+    } catch (discardErr) {
+      console.error('[invoice-writer] discarding the failed draft also failed:', discardErr.message);
+    }
+    throw err;
+  }
+}
+
+module.exports = {
+  createEmailWithInvoices, readInvoice, updateInvoice, writeTarget, str, num, isoDate, timestamp
+};

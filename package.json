@@ -47,6 +47,16 @@
           }
         }
       },
+      "S4_JOURNAL_ENTRY": {
+        "comment": "SOAP JournalEntryCreateRequestConfirmation_In (FI vendor invoice posting, srv/lib/journal-entry.js). The URL is the full SOAMANAGER endpoint, not a host root. Deployed: subaccount destination ABMY_JOURNAL_ENTRY. `s4` profile: CF user-provided service ABMY_JOURNAL_ENTRY bound in .cdsrc-private.json. Plain `cds watch` has neither, so verifyInvoice mock-posts locally.",
+        "kind": "rest",
+        "csrf": false,
+        "[production]": {
+          "credentials": {
+            "destination": "ABMY_JOURNAL_ENTRY"
+          }
+        }
+      },
       "html5-repo": true
     }
   },
