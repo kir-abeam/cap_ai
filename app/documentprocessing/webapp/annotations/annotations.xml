@@ -95,7 +95,6 @@
             <Record Type="UI.DataField"><PropertyValue Property="Value" Path="DocumentNumber"/><PropertyValue Property="Label" String="Document Number"/></Record>
             <Record Type="UI.DataField"><PropertyValue Property="Value" Path="VendorName"/><PropertyValue Property="Label" String="Vendor Name"/></Record>
             <Record Type="UI.DataField"><PropertyValue Property="Value" Path="TotalAmount"/><PropertyValue Property="Label" String="Total Amount"/></Record>
-            <Record Type="UI.DataField"><PropertyValue Property="Value" Path="Currency"/><PropertyValue Property="Label" String="Currency"/></Record>
             <Record Type="UI.DataField"><PropertyValue Property="Value" Path="VerificationStatus"/><PropertyValue Property="Label" String="Verification Status"/></Record>
             <Record Type="UI.DataField"><PropertyValue Property="Value" Path="AccountingDocument"/><PropertyValue Property="Label" String="Accounting Document"/></Record>
           </Collection>
@@ -103,15 +102,15 @@
 
         <Annotation Term="UI.Facets">
           <Collection>
-            <Record Type="UI.ReferenceFacet">
+            <Record Type="UI.CollectionFacet">
               <PropertyValue Property="ID" String="HeaderFacet"/>
-              <PropertyValue Property="Label" String="Invoice Header"/>
-              <PropertyValue Property="Target" AnnotationPath="@UI.FieldGroup#Header"/>
-            </Record>
-            <Record Type="UI.ReferenceFacet">
-              <PropertyValue Property="ID" String="PostingFacet"/>
-              <PropertyValue Property="Label" String="Posting"/>
-              <PropertyValue Property="Target" AnnotationPath="@UI.FieldGroup#Posting"/>
+              <PropertyValue Property="Label" String="Header"/>
+              <PropertyValue Property="Facets">
+                <Collection>
+                  <Record Type="UI.ReferenceFacet"><PropertyValue Property="Label" String="Invoice Details"/><PropertyValue Property="Target" AnnotationPath="@UI.FieldGroup#Invoice_Details"/></Record>
+                  <Record Type="UI.ReferenceFacet"><PropertyValue Property="Label" String="Posting Details"/><PropertyValue Property="Target" AnnotationPath="@UI.FieldGroup#Posting_Details"/></Record>
+                </Collection>
+              </PropertyValue>
             </Record>
             <Record Type="UI.ReferenceFacet">
               <PropertyValue Property="ID" String="ItemsFacet"/>
@@ -121,38 +120,64 @@
           </Collection>
         </Annotation>
 
-        <Annotation Term="UI.FieldGroup" Qualifier="Header">
+        <Annotation Term="UI.FieldGroup" Qualifier="Invoice_Details">
           <Record>
             <PropertyValue Property="Data">
               <Collection>
                 <Record Type="UI.DataField"><PropertyValue Property="Value" Path="DocumentNumber"/><PropertyValue Property="Label" String="Document Number"/></Record>
                 <Record Type="UI.DataField"><PropertyValue Property="Value" Path="DocumentDate"/><PropertyValue Property="Label" String="Document Date"/></Record>
                 <Record Type="UI.DataField"><PropertyValue Property="Value" Path="TotalAmount"/><PropertyValue Property="Label" String="Total Amount"/></Record>
-                <Record Type="UI.DataField"><PropertyValue Property="Value" Path="Currency"/><PropertyValue Property="Label" String="Currency"/></Record>
                 <Record Type="UI.DataField"><PropertyValue Property="Value" Path="TaxAmount"/><PropertyValue Property="Label" String="Tax Amount"/></Record>
-                <Record Type="UI.DataField"><PropertyValue Property="Value" Path="VendorCode"/><PropertyValue Property="Label" String="Vendor Code"/></Record>
                 <Record Type="UI.DataField"><PropertyValue Property="Value" Path="VendorName"/><PropertyValue Property="Label" String="Vendor Name"/></Record>
                 <Record Type="UI.DataField"><PropertyValue Property="Value" Path="VendorAccountNumber"/><PropertyValue Property="Label" String="Vendor Account Number"/></Record>
-                <Record Type="UI.DataField"><PropertyValue Property="Value" Path="VerificationStatus"/><PropertyValue Property="Label" String="Verification Status"/></Record>
               </Collection>
             </PropertyValue>
           </Record>
         </Annotation>
 
         <!-- FI posting (InvoicePostingService). Mirrors FieldGroup#Posting in annotations.cds. -->
-        <Annotation Term="UI.FieldGroup" Qualifier="Posting">
+        <Annotation Term="UI.FieldGroup" Qualifier="Posting_Details">
           <Record>
             <PropertyValue Property="Data">
               <Collection>
                 <Record Type="UI.DataField"><PropertyValue Property="Value" Path="CompanyCode"/><PropertyValue Property="Label" String="Company Code"/></Record>
-                <Record Type="UI.DataField"><PropertyValue Property="Value" Path="PostingDate"/><PropertyValue Property="Label" String="Posting Date"/></Record>
-                <Record Type="UI.DataField"><PropertyValue Property="Value" Path="TaxCode"/><PropertyValue Property="Label" String="Tax Code"/></Record>
                 <Record Type="UI.DataField"><PropertyValue Property="Value" Path="AccountingDocument"/><PropertyValue Property="Label" String="Accounting Document"/></Record>
                 <Record Type="UI.DataField"><PropertyValue Property="Value" Path="FiscalYear"/><PropertyValue Property="Label" String="Fiscal Year"/></Record>
-                <Record Type="UI.DataField"><PropertyValue Property="Value" Path="PostingMessage"/><PropertyValue Property="Label" String="Posting Message"/></Record>
+                <Record Type="UI.DataField"><PropertyValue Property="Value" Path="PostingDate"/><PropertyValue Property="Label" String="Posting Date"/></Record>
+                <Record Type="UI.DataField"><PropertyValue Property="Value" Path="VendorCode"/><PropertyValue Property="Label" String="Vendor Code"/></Record>
               </Collection>
             </PropertyValue>
           </Record>
+        </Annotation>
+
+        <!-- Verification status in the Object Page header. S/4 exposes no
+             criticality field, so derive it from the code: V green, R red,
+             P (pending) orange. Common.Text on the property shows the text. -->
+        <Annotation Term="UI.DataPoint" Qualifier="VerificationStatus">
+          <Record>
+            <PropertyValue Property="Value" Path="VerificationStatus"/>
+            <PropertyValue Property="Title" String="Status"/>
+            <PropertyValue Property="Criticality">
+              <If>
+                <Eq><Path>VerificationStatus</Path><String>V</String></Eq>
+                <Int>3</Int>
+                <If>
+                  <Eq><Path>VerificationStatus</Path><String>R</String></Eq>
+                  <Int>1</Int>
+                  <Int>2</Int>
+                </If>
+              </If>
+            </PropertyValue>
+          </Record>
+        </Annotation>
+
+        <Annotation Term="UI.HeaderFacets">
+          <Collection>
+            <Record Type="UI.ReferenceFacet">
+              <PropertyValue Property="ID" String="VerificationStatusHeader"/>
+              <PropertyValue Property="Target" AnnotationPath="@UI.DataPoint#VerificationStatus"/>
+            </Record>
+          </Collection>
         </Annotation>
       </Annotations>
 
@@ -226,6 +251,11 @@
              Read-only even in edit mode (a UI hint; the Verify/Reject draft PATCH
              still writes it). EDMX keeps a static field control (unlike CAP). -->
         <Annotation Term="Common.FieldControl" EnumMember="Common.FieldControlType/ReadOnly"/>
+      </Annotations>
+
+      <Annotations Target="com.sap.gateway.srvd_a2x.zui_invoice_review_o4.v0001.InvoiceType/TotalAmount">
+        <Annotation Term="Common.Label" String="Total Amount"/>
+        <Annotation Term="Measures.ISOCurrency" Path="Currency"/>
       </Annotations>
 
       <!-- Posting results: written only by InvoicePostingService, never typed
